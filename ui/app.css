@@ -436,7 +436,10 @@ body.booting .lcd { filter: brightness(.12) saturate(.4); box-shadow: 0 0 0 1px 
 .pane.on { opacity: 1; transform: none; pointer-events: auto; }
 /* only the results area and lists give up space; everything else keeps its size, and the pane scrolls if it must */
 .pane > *:not(.shelf):not(.list) { flex-shrink: 0; }
-.pane { overflow-y: auto; scrollbar-width: thin; }
+.pane { overflow-y: auto; overflow-x: hidden; scrollbar-width: thin; }
+.list, .shelf-body { overflow-x: hidden; }
+.recent > span { min-width: 0; }
+.row > div { min-width: 0; }
 .pane::-webkit-scrollbar { width: 6px; }
 .pane::-webkit-scrollbar-thumb { background: #2c2c2c; border-radius: 3px; }
 .shelf { min-height: 90px; }
@@ -511,6 +514,30 @@ body.booting .lcd { filter: brightness(.12) saturate(.4); box-shadow: 0 0 0 1px 
 .row .icon-btn { width: 32px; height: 32px; }
 .empty-big { text-align: center; color: var(--muted); padding: 40px 10px; font-size: 14px; line-height: 1.6; }
 .empty-big b { display: block; font: 700 16px var(--px-big); color: var(--text); margin-bottom: 6px; text-transform: uppercase; }
+
+/* ---------- on-flipper tab ---------- */
+.fl-head { display: flex; align-items: center; justify-content: space-between; gap: 12px; }
+.fl-name { font: 700 16px var(--px-big); text-transform: uppercase; color: var(--orange); }
+.fl-sub { font-size: 13px; color: var(--muted); margin-top: 2px; }
+.fl-actions { display: flex; gap: 8px; }
+.sd { display: flex; align-items: center; gap: 12px; font: 12px var(--mono); color: var(--muted); }
+.sd-bar { flex: 1; display: grid; grid-template-columns: repeat(40, 1fr); gap: 2px; height: 10px; }
+.sd-bar i { background: var(--panel-2); border-radius: 1px; }
+.sd-bar i.on { background: var(--orange); }
+.sd-bar i.hi { background: var(--err); }
+.fl-progress { display: flex; align-items: center; gap: 10px; font-size: 13px; color: var(--orange-2);
+  border: 1px dashed #5a3410; border-radius: 10px; padding: 6px 10px; }
+.fl-progress .blk { width: 10px; height: 10px; background: var(--orange); animation: blink .6s steps(2) infinite; }
+.fl-progress span:nth-child(2) { flex: 1; }
+.icon-btn.danger:hover { border-color: var(--err); color: var(--err); }
+.icon-btn.go:hover { border-color: var(--ok); color: var(--ok); }
+
+/* ---------- confirm dialog ---------- */
+.sheet.small { width: min(440px, 92vw); }
+.cf-body { font-size: 14px; color: var(--text); line-height: 1.5; }
+.cf-body code { font: 12px var(--mono); color: var(--orange-2); background: #1f1712; padding: 1px 5px; border-radius: 4px; }
+.mini.danger { background: var(--err); border-color: var(--err); color: #1a0503; }
+.mini.danger:hover { background: #ff7b72; }
 
 /* ---------- picker modal ---------- */
 .modal { position: fixed; inset: 0; z-index: 40; background: rgba(0,0,0,.6); backdrop-filter: blur(4px);

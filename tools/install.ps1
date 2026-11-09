@@ -6,9 +6,16 @@ $root = Split-Path -Parent $PSScriptRoot
 $dist = Join-Path $root 'dist\FlipperBuilder'
 if (-not (Test-Path "$dist\FlipperBuilder.exe")) { throw "Build first: tools\build_exe.ps1" }
 
-Get-Process FlipperBuilder -ErrorAction SilentlyContinue | Stop-Process -Force
+# Close a running copy and wait until Windows releases its files (DLLs stay locked for a moment)
+$running = Get-Process FlipperBuilder -ErrorAction SilentlyContinue
+if ($running) { $running | Stop-Process -Force; $running | Wait-Process -Timeout 15 -ErrorAction SilentlyContinue }
 New-Item -ItemType Directory -Force $Target | Out-Null
-if (Test-Path "$Target\_internal") { Remove-Item -Recurse -Force "$Target\_internal" }
+if (Test-Path "$Target\_internal") {
+    for ($i = 1; $i -le 10; $i++) {
+        try { Remove-Item -Recurse -Force "$Target\_internal" -ErrorAction Stop; break }
+        catch { if ($i -eq 10) { throw "Couldn't replace the old files (still in use?): $_" }; Start-Sleep -Milliseconds 700 }
+    }
+}
 Copy-Item "$dist\*" $Target -Recurse -Force
 
 # reuse SDKs already downloaded by the source version (same drive: instant move)
@@ -46,7 +53,7 @@ pause
 $key = 'HKCU:\Software\Microsoft\Windows\CurrentVersion\Uninstall\FlipperBuilder'
 New-Item -Force $key | Out-Null
 $size = [int]((Get-ChildItem $Target -Recurse -File | Measure-Object Length -Sum).Sum / 1KB)
-@{ DisplayName = 'Flipper Builder'; DisplayVersion = '1.3.0'; Publisher = 'c3rb3ruszx'
+@{ DisplayName = 'Flipper Builder'; DisplayVersion = '1.4.0'; Publisher = 'c3rb3ruszx'
    DisplayIcon = "$exe,0"; InstallLocation = $Target; UninstallString = "`"$Target\uninstall.cmd`""
 }.GetEnumerator() | ForEach-Object { Set-ItemProperty $key $_.Key $_.Value }
 Set-ItemProperty $key EstimatedSize $size -Type DWord

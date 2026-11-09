@@ -9,6 +9,7 @@ import importlib
 import re
 import sys
 import threading
+import time
 from pathlib import Path
 
 import serial
@@ -213,6 +214,95 @@ def remove(port, sdk_dirs, path):
             return True
         return False
     return storage_call(port, sdk_dirs, fn)
+
+
+def _list(st, path):
+    """[(kind 'D'|'F', name, size)] for one folder, parsed like the SDK's list_tree."""
+    st.send_and_wait_eol(f'storage list "{path}"\r')
+    data = st.read.until(st.CLI_PROMPT)
+    out = []
+    for raw in data.split(b"\r\n"):
+        line = raw.decode("utf-8", "replace").strip()
+        if not line or line == "Empty" or "Storage error" in line:
+            continue
+        kind, _, info = line.partition(" ")
+        if kind == "[D]":
+            out.append(("D", info, 0))
+        elif kind == "[F]":
+            name, _, size = info.rpartition(" ")
+            out.append(("F", name, int(size.rstrip("b")) if size.rstrip("b").isdigit() else 0))
+    return out
+
+
+def list_apps(port, sdk_dirs):
+    """Installed .fap apps under /ext/apps/<Category>/ plus SD card space."""
+    def fn(mod, st):
+        apps = []
+        for kind, cat, _ in _list(st, "/ext/apps"):
+            if kind != "D":
+                continue
+            for k2, name, size in _list(st, f"/ext/apps/{cat}"):
+                if k2 == "F" and name.lower().endswith(".fap"):
+                    apps.append({"path": f"/ext/apps/{cat}/{name}", "category": cat, "file": name, "size": size})
+        st.send_and_wait_eol('storage info "/ext"\r')
+        info = st.read.until(st.CLI_PROMPT).decode("utf-8", "replace")
+        total = re.search(r"(\d+)\s*KiB total", info)
+        free = re.search(r"(\d+)\s*KiB free", info)
+        sd = {"total_kib": int(total.group(1)) if total else None, "free_kib": int(free.group(1)) if free else None}
+        return {"apps": apps, "sd": sd}
+    return storage_call(port, sdk_dirs, fn, seconds=30)
+
+
+def read_file(port, sdk_dirs, path, size_hint=0):
+    """Copy a file off the Flipper (used to read a .fap's manifest)."""
+    return storage_call(port, sdk_dirs, lambda mod, st: bytes(st.read_file(path)),
+                        seconds=15 + size_hint / 8192)
+
+
+def read_many(port, sdk_dirs, items, on_file, should_stop=lambda: False):
+    """Read several files in ONE session (opening the port costs ~0.5 s per session).
+    items: [{path, size}]; on_file(item, bytes) for each. Stops early if should_stop()."""
+    with _port_lock:
+        mod, st = _open_guarded(port, sdk_dirs)
+        try:
+            for it in items:
+                if should_stop():
+                    break
+                with _Watchdog(st, 10 + it.get("size", 0) / 8192):
+                    try:
+                        data = bytes(st.read_file(it["path"]))
+                    except mod.FlipperStorageException:
+                        data = b""
+                    except (serial.SerialException, OSError, TypeError) as e:
+                        raise DeviceError(f"USB read failed: {e}")
+                on_file(it, data)
+        finally:
+            try:
+                st.stop()
+            except Exception:  # noqa: BLE001
+                pass
+
+
+def open_app(port, sdk_dirs, path):
+    """Open an app on the Flipper, the way the SDK's runfap.py does: close the current app, then open."""
+    def fn(mod, st):
+        for _ in range(10):
+            st.send_and_wait_eol("loader close\r")
+            result = st.read.until(st.CLI_EOL)
+            if b"was closed" in result:
+                st.read.until(st.CLI_EOL)
+                time.sleep(0.5)
+            elif result.startswith(b"No application"):
+                st.read.until(st.CLI_EOL)
+                break
+            else:
+                raise DeviceError("The Flipper is busy with an app that won't close. Exit it on the Flipper.")
+        st.send_and_wait_eol(f'loader open "{path}"\r')
+        result = st.read.until(st.CLI_EOL)
+        if result.strip():
+            raise DeviceError("The Flipper couldn't open it: " + result.decode("utf-8", "replace").strip())
+        return True
+    return storage_call(port, sdk_dirs, fn, seconds=20)
 
 
 def api_compatible(app_api, device_api):

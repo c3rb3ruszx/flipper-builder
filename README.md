@@ -24,6 +24,10 @@ and cries when the build breaks.
   something that won't run on it.
 - **Install straight to the Flipper**: after building, *Install to SD* copies the `.fap` into
   `apps/<Category>/` over USB, or *Install & open* also launches it. Close qFlipper first.
+- **See what's on your Flipper**: the *On Flipper* tab lists every app on the SD card with its real
+  name, version and icon (read from each `.fap`'s own manifest), SD card space, and which apps won't
+  open on your firmware. Open any app on the Flipper, remove it, or update it with a newer build from
+  your Library. App info is cached, so only the first look reads the files.
 - **Library + Rebuild all**: every app you build is remembered, with badges for what runs on your
   Flipper and what's outdated. After a firmware update, one click rebuilds them all for the new
   firmware (and installs them, if you like).
@@ -43,6 +47,8 @@ and cries when the build breaks.
 - SDK refreshes itself once a day; **SDK** button in the header forces it (right after a firmware update).
 
 ![Flipper plugged in: firmware detected and matched](assets/screenshot-device.png)
+
+![The apps on a Flipper, with their own icons](assets/screenshot-onflipper.png)
 
 ![Build finished](assets/screenshot-done.png)
 

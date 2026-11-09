@@ -60,6 +60,7 @@
       <button class="tab on" data-tab="build"><i data-icon="terminal"></i>Build</button>
       <button class="tab" data-tab="library"><i data-icon="folder"></i>Library<span class="count" id="libCount"></span></button>
       <button class="tab" data-tab="discover"><i data-icon="search"></i>Discover</button>
+      <button class="tab" data-tab="flipper"><i data-icon="usb"></i>On Flipper<span class="count" id="flCount"></span></button>
       <span class="tab-ink" id="tabInk"></span>
     </nav>
 
@@ -136,6 +137,28 @@
         <div class="lib-note" id="catNote">Apps from Flipper's official catalog, built from the exact version Flipper reviewed.</div>
         <div class="list" id="catList"></div>
       </div>
+
+      <!-- ON FLIPPER -->
+      <div class="pane" data-pane="flipper">
+        <div class="fl-head" id="flHead">
+          <div class="fl-dev">
+            <div class="fl-name" id="flName">No Flipper</div>
+            <div class="fl-sub" id="flSub">Plug it in over USB and close qFlipper.</div>
+          </div>
+          <div class="fl-actions">
+            <button class="mini" id="flUpdateAll" hidden title="Install your newer builds over the apps on the Flipper"><i data-icon="download"></i><span id="flUpdateLabel">Update</span></button>
+            <button class="mini" id="flRefresh" title="Read the Flipper's apps again"><i data-icon="refresh"></i>Refresh</button>
+          </div>
+        </div>
+        <div class="sd" id="flSd" hidden><div class="sd-bar" id="flSdBar"></div><span id="flSdText"></span></div>
+        <div class="fl-progress" id="flProg" hidden><span class="blk"></span><span id="flProgText"></span><button class="mini" id="flStop">Stop</button></div>
+        <div class="input-wrap small">
+          <i data-icon="search" class="in-icon"></i>
+          <input id="flSearch" type="text" spellcheck="false" autocomplete="off" placeholder="Filter apps on your Flipper">
+        </div>
+        <div class="cat-filter" id="flFilter"></div>
+        <div class="list" id="flList"></div>
+      </div>
     </div>
   </section>
 </main>
@@ -168,6 +191,18 @@
     <div class="sheet-foot">
       <button class="mini" id="pickCancel">Cancel</button>
       <button class="mini primary big" id="pickGo">Build</button>
+    </div>
+  </div>
+</div>
+
+<!-- confirm dialog -->
+<div class="modal" id="confirm" hidden>
+  <div class="sheet small">
+    <div class="sheet-title" id="cfTitle">Are you sure?</div>
+    <div class="cf-body" id="cfBody"></div>
+    <div class="sheet-foot">
+      <button class="mini" id="cfNo">Cancel</button>
+      <button class="mini primary big danger" id="cfYes">OK</button>
     </div>
   </div>
 </div>

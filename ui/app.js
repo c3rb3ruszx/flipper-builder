@@ -233,6 +233,19 @@ function mockApi() {
     catalog: async () => { await sleep(600); const cats = ["Games", "GPIO", "Tools", "NFC", "Sub-GHz", "Media"];
       return { count: 60, apps: Array.from({ length: 60 }, (_, i) => ({ id: "app_" + i, name: ["Snake", "Dice", "Tetris", "Wifi Marauder", "Signal Gen", "Metronome", "Tuner", "Nfc Magic", "Doom Fire", "Bt Remote"][i % 10] + " " + (i + 1), category: cats[i % cats.length], repo: "someone/app" + i, url: "https://github.com/someone/app" + i })) }; },
     pick_folder: async () => "C:\\code\\my_app", set_watch: async (p) => ({ ok: true, path: p }),
+    flipper_list: async () => { await sleep(500); return { sd: { total_kib: 7759872, free_kib: 5312000 }, apps: [
+      ["Games", "tetris.fap", 7288, { name: "Tetris", version: "1.5", api: "87.1", icon: "/wP/A0kCSQL/A0gASABIAHgASABIAHgA" }],
+      ["Games", "dice_app.fap", 22504, null], ["GPIO", "flip_wifi.fap", 67868, { name: "FlipWiFi", version: "1.6", api: "86.0", icon: null }],
+      ["Tools", "clock.fap", 3812, null], ["Media", "music_player.fap", 18360, { name: "Music Player", version: "1.4", api: "87.1", icon: null }],
+      ["NFC", "nfc_magic.fap", 40210, null], ["Sub-GHz", "weather_station.fap", 61002, null]].map(([category, file, size, meta]) =>
+      ({ path: `/ext/apps/${category}/${file}`, category, file, size, meta })) }; },
+    flipper_check: async (apps) => { apps.forEach((a, i) => later(400 * (i + 1), [{ type: "fmeta", path: a.path, done: i + 1, total: apps.length,
+      meta: { name: prettyFile(a.path.split("/").pop()), version: "1." + i, api: i % 3 ? "87.1" : "85.0", icon: null } }]));
+      later(400 * (apps.length + 1), [{ type: "fcheck_done", done: apps.length }]); return { ok: true }; },
+    flipper_check_stop: async () => true,
+    flipper_open: async () => { await sleep(300); return { ok: true }; },
+    flipper_remove: async () => { await sleep(300); return { ok: true }; },
+    flipper_update: async () => { later(100, [{ type: "stage", stage: "send" }]); later(1500, [{ type: "finished", ok: true, send_only: true, installed: true, flipper_changed: true }]); return { ok: true }; },
     clear_recent: async () => true, open_folder: async () => true, open_url: async () => true, copy: async () => true,
   };
 }
@@ -302,7 +315,7 @@ function wake() {
 }
 
 /* ---------- tabs ---------- */
-const TAB_ORDER = ["build", "library", "discover"];
+const TAB_ORDER = ["build", "library", "discover", "flipper"];
 function setTab(name) {
   const prev = S.tab; S.tab = name;
   $$(".tab").forEach((t) => t.classList.toggle("on", t.dataset.tab === name));
@@ -314,6 +327,7 @@ function setTab(name) {
   moveInk($("#tabInk"), $(`.tab[data-tab="${name}"]`), true);
   if (name === "library") loadLibrary();
   if (name === "discover") loadCatalog();
+  if (name === "flipper" && prev !== "flipper") loadFlipper();
   if (prev !== name) wake();
 }
 function moveInk(ink, btn, flat) {
@@ -399,6 +413,7 @@ function onDevice(d) {
   }
   renderCompat();
   if (S.tab === "library") renderLibrary();
+  if (S.tab === "flipper" && (newly || (was.connected && !S.device.connected) || (!was.error && S.device.error))) loadFlipper();
 }
 function renderCompat() {
   const c = $("#compat"), d = S.device, f = fwObj();
@@ -700,6 +715,167 @@ function renderCatalog() {
   renderIcons(list);
 }
 
+/* ---------- on-flipper tab: what's installed on the device ---------- */
+const FL = { apps: null, sd: null, filter: "All", checking: false, error: "" };
+function xbmIcon(b64) {           // 10x10 1-bit icon from the .fap manifest -> PNG data URI
+  try {
+    const raw = atob(b64), c = document.createElement("canvas");
+    c.width = c.height = 10;
+    const x = c.getContext("2d");
+    x.fillStyle = "#000";
+    for (let y = 0; y < 10; y++) for (let i = 0; i < 10; i++)
+      if ((raw.charCodeAt(y * 2 + (i >> 3)) >> (i & 7)) & 1) x.fillRect(i, y, 1, 1);
+    return c.toDataURL();
+  } catch (_) { return null; }
+}
+function prettyFile(f) { return f.replace(/\.fap$/i, "").split(/[_\-]+/).map((w) => w ? w[0].toUpperCase() + w.slice(1) : w).join(" "); }
+function libMatch(app) {          // a build in the library for this file, preferring the Flipper's firmware
+  if (!S.lib) return null;
+  const same = S.lib.items.filter((i) => (i.files || [{ path: i.file }]).some((f) => (f.path || "").split(/[\\/]/).pop().toLowerCase() === app.file.toLowerCase()));
+  return same.find((i) => i.fw === S.device.fw) || null;
+}
+function flUpdate(app) {          // library build that should replace what's installed
+  const lib = libMatch(app);
+  if (!lib || !app.meta) return null;
+  const ok = apiOk(app.meta.api, S.device.api);
+  const libOk = apiOk(lib.api, S.device.api);
+  if (libOk && (ok === false || lib.api !== app.meta.api || (lib.version && app.meta.version && lib.version !== app.meta.version))) return lib;
+  return null;
+}
+async function loadFlipper() {
+  if (!S.device.connected || S.device.error) { FL.apps = null; FL.error = ""; renderFlipper(); return; }
+  if (!S.lib) await loadLibrary();
+  $("#flList").innerHTML = `<div class="skeleton"><span class="blk"></span>Reading your Flipper's SD card...</div>`;
+  const r = await api.flipper_list();
+  if (r.error) { FL.apps = null; FL.error = r.error; renderFlipper(); return; }
+  FL.apps = r.apps; FL.sd = r.sd; FL.error = ""; FL.animated = false;
+  $("#flCount").textContent = r.apps.length || "";
+  renderFlipper();
+  const todo = r.apps.filter((a) => !a.meta);
+  if (todo.length && !FL.checking) {
+    FL.checking = true;
+    showFlProgress(0, todo.length);
+    api.flipper_check(todo.map((a) => ({ path: a.path, size: a.size })));
+  }
+}
+function showFlProgress(done, total) {
+  const p = $("#flProg");
+  if (done == null) { p.hidden = true; return; }
+  p.hidden = false;
+  // USB reads run at ~110 KB/s; estimate from the apps still missing their info
+  const left = (FL.apps || []).filter((a) => !a.meta).reduce((s, a) => s + a.size, 0);
+  const secs = Math.round(left / 110000);
+  const eta = secs > 90 ? `about ${Math.round(secs / 60)} min left` : secs > 5 ? `about ${secs}s left` : "almost done";
+  $("#flProgText").textContent = `Reading app info from the Flipper: ${done} of ${total}, ${eta}. Only the first time; it's cached after.`;
+}
+function renderFlipper() {
+  const d = S.device, list = $("#flList");
+  $("#flName").textContent = d.connected && !d.error ? d.name : d.connected ? "Flipper busy" : "No Flipper";
+  $("#flSub").textContent = d.connected && !d.error
+    ? `${d.fw_name || "Unknown firmware"} · ${d.version || ""}${d.commit ? " (" + d.commit + ")" : ""} · API ${d.api || "?"} · ${d.port}`
+    : d.connected ? d.error : "Plug it in over USB, unlock it, and close qFlipper.";
+  $("#flRefresh").disabled = !(d.connected && !d.error);
+  const sd = FL.sd;
+  if (FL.apps && sd && sd.total_kib) {
+    const used = 1 - sd.free_kib / sd.total_kib, n = 40, lit = used > 0 ? Math.max(1, Math.round(used * n)) : 0;
+    $("#flSdBar").innerHTML = Array.from({ length: n }, (_, i) => `<i class="${i < lit ? (used > .9 ? "hi" : "on") : ""}"></i>`).join("");
+    $("#flSdText").textContent = `SD card: ${(sd.free_kib / 1048576).toFixed(2)} GB free of ${(sd.total_kib / 1048576).toFixed(2)} GB`;
+    $("#flSd").hidden = false;
+  } else $("#flSd").hidden = true;
+  if (!FL.apps) {
+    $("#flFilter").innerHTML = ""; $("#flUpdateAll").hidden = true;
+    list.innerHTML = FL.error
+      ? `<div class="empty-big"><b>Couldn't read it</b>${esc(FL.error)}</div>`
+      : `<div class="empty-big"><b>${d.connected ? "Flipper busy" : "No Flipper"}</b>${d.connected ? esc(d.error || "") : "Plug in your Flipper to see the apps on its SD card,<br>open them, remove them, or update them with your newer builds."}</div>`;
+    return;
+  }
+  const counts = {};
+  FL.apps.forEach((a) => (counts[a.category] = (counts[a.category] || 0) + 1));
+  if (FL.filter !== "All" && !counts[FL.filter]) FL.filter = "All";
+  $("#flFilter").innerHTML = `<button class="fchip ${FL.filter === "All" ? "on" : ""}" data-c="All">All<small>${FL.apps.length}</small></button>` +
+    Object.keys(counts).sort().map((c) => `<button class="fchip ${FL.filter === c ? "on" : ""}" data-c="${esc(c)}">${esc(c)}<small>${counts[c]}</small></button>`).join("");
+  $$("#flFilter .fchip").forEach((b) => (b.onclick = () => { FL.filter = b.dataset.c; renderFlipper(); }));
+  const updates = FL.apps.map((a) => [a, flUpdate(a)]).filter(([, l]) => l);
+  $("#flUpdateAll").hidden = !updates.length;
+  $("#flUpdateLabel").textContent = `Update ${updates.length}`;
+  $("#flUpdateAll").onclick = () => flDoUpdate(updates);
+  const q = $("#flSearch").value.trim().toLowerCase();
+  const shown = FL.apps.filter((a) => (FL.filter === "All" || a.category === FL.filter) &&
+    (!q || (a.file + " " + a.category + " " + ((a.meta && a.meta.name) || "")).toLowerCase().includes(q)))
+    .sort((a, b) => a.category.localeCompare(b.category) || ((a.meta && a.meta.name) || a.file).localeCompare((b.meta && b.meta.name) || b.file));
+  const bad = FL.apps.filter((a) => a.meta && a.meta.api && apiOk(a.meta.api, d.api) === false).length;
+  list.innerHTML = "";
+  if (bad) list.insertAdjacentHTML("beforeend", `<div class="lib-note" style="color:var(--orange-2)">${bad} app${bad > 1 ? "s" : ""} won't open on this firmware (built for another API). Rebuild them here, or remove them.</div>`);
+  shown.forEach((a, idx) => {
+    const m = a.meta || {}, lib = libMatch(a), upd = flUpdate(a);
+    const icon = m.icon ? xbmIcon(m.icon) : lib && lib.icon;
+    const ok = m.api ? apiOk(m.api, d.api) : null;
+    const row = document.createElement("div");
+    row.className = "row";
+    // slide in only on the first draw; live updates (header reads) must not replay the animation
+    if (FL.animated) row.style.animation = "none"; else row.style.animationDelay = Math.min(idx, 14) * 22 + "ms";
+    row.dataset.path = a.path;
+    row.innerHTML = `${icon ? `<div class="app-icon"><img src="${icon}" alt=""></div>` : `<div class="app-icon cat">${esc(a.category.slice(0, 2).toUpperCase())}</div>`}
+      <div style="min-width:0"><div class="row-title">${esc(m.name || prettyFile(a.file))}${m.version ? ` <span style="color:var(--dim);font-size:12px">v${esc(m.version)}</span>` : ""}</div>
+      <div class="row-sub"><span class="badge fw">${esc(a.category)}</span>` +
+      (ok === false ? `<span class="badge bad" title="Built for API ${esc(m.api)}, your Flipper is ${esc(d.api)}">won't open (API ${esc(m.api)})</span>` : ok ? `<span class="badge ok">runs</span>` : "") +
+      (upd ? `<span class="badge old">update in library</span>` : lib ? `<span class="badge fw" title="You built this one">yours</span>` : "") +
+      `<span>${fmtSize(a.size)} · ${esc(a.file)}</span></div></div><div class="row-actions"></div>`;
+    const acts = $(".row-actions", row);
+    const openBtn = iconBtn("play", "Open it on the Flipper", async () => {
+      LCD.say("Opening it on your Flipper", 2500); LCD.poke();
+      const r = await api.flipper_open(a.path);
+      toast(r.error ? r.error : "Opened on your Flipper");
+    });
+    openBtn.classList.add("go");
+    acts.append(openBtn);
+    if (upd) acts.append(iconBtn("download", `Install your build (API ${upd.api}) over it`, () => flDoUpdate([[a, upd]])));
+    const rm = iconBtn("trash", "Remove it from the Flipper", () => flRemove(a));
+    rm.classList.add("danger");
+    acts.append(rm);
+    list.appendChild(row);
+  });
+  if (!shown.length) list.insertAdjacentHTML("beforeend", `<div class="empty-big"><b>No apps</b>${FL.apps.length ? "Nothing matches that filter." : "There are no .fap apps in /ext/apps on this SD card."}</div>`);
+  renderIcons(list);
+  FL.animated = true;
+}
+async function flRemove(a) {
+  const name = (a.meta && a.meta.name) || prettyFile(a.file);
+  const yes = await confirmDialog(`Remove ${name}?`,
+    `This deletes <code>${esc(a.path)}</code> from your Flipper's SD card. It can't be undone` +
+    (libMatch(a) ? ", but the build stays in your Library so you can reinstall it." : "."), "Remove");
+  if (!yes) return;
+  const r = await api.flipper_remove(a.path);
+  if (r.error) { toast(r.error); return; }
+  toast(`${name} removed`);
+  LCD.say("Poof! Gone", 2500); LCD.poke();
+  FL.apps = FL.apps.filter((x) => x.path !== a.path);
+  $("#flCount").textContent = FL.apps.length || "";
+  renderFlipper();
+}
+async function flDoUpdate(pairs) {
+  if (S.busy) return;
+  const names = pairs.map(([a]) => (a.meta && a.meta.name) || prettyFile(a.file));
+  const yes = await confirmDialog(`Update ${pairs.length === 1 ? names[0] : pairs.length + " apps"}?`,
+    `Replaces the installed ${pairs.length === 1 ? "file" : "files"} with your newer build${pairs.length > 1 ? "s" : ""} from the Library, at the same place on the SD card` +
+    (pairs.length > 1 ? `: ${esc(names.join(", "))}.` : "."), "Update");
+  if (!yes) return;
+  startJob("install", () => api.flipper_update(pairs.map(([a, lib]) => [a.path, lib.file])));
+}
+function confirmDialog(title, html, okLabel) {
+  return new Promise((resolve) => {
+    $("#cfTitle").textContent = title;
+    $("#cfBody").innerHTML = html;
+    $("#cfYes").textContent = okLabel || "OK";
+    $("#confirm").hidden = false;
+    const done = (v) => { $("#confirm").hidden = true; $("#cfYes").onclick = $("#cfNo").onclick = null; resolve(v); };
+    $("#cfYes").onclick = () => done(true);
+    $("#cfNo").onclick = () => done(false);
+    confirmDialog.cancel = () => done(false);
+    setTimeout(() => $("#cfNo").focus(), 30);
+  });
+}
+
 /* ---------- app picker (repos with several apps) ---------- */
 function openPicker(apps) {
   S.pickApps = apps;
@@ -869,6 +1045,19 @@ function onEvents(batch) {
       case "select": openPicker(e.apps); break;
       case "batch": S.batch = e; S.progress = 0; renderShelf(); break;
       case "device": onDevice(e.device); break;
+      case "fmeta": {
+        const a = FL.apps && FL.apps.find((x) => x.path === e.path);
+        if (a) a.meta = e.meta;
+        showFlProgress(e.done, e.total);
+        // redraw at most ~3x a second while 200+ headers stream in
+        if (S.tab === "flipper" && !FL.t) FL.t = setTimeout(() => { FL.t = null; renderFlipper(); }, 350);
+        break;
+      }
+      case "fcheck_done":
+        FL.checking = false; showFlProgress(null);
+        if (e.error) toast(e.error);
+        if (S.tab === "flipper") renderFlipper();
+        break;
       case "update":
         $("#updatePill").hidden = false; $("#updateText").textContent = `Update ${e.version}`;
         $("#updatePill").onclick = () => api.open_url(e.url);
@@ -892,6 +1081,7 @@ function finished(e) {
   // the install step runs after the result cards were drawn: mark them now
   if (e.installed && !e.install_error) S.results.forEach((r) => { if (r.ok) r.installed = true; });
   if (S.tab === "library" || e.rebuild || e.built) loadLibrary();
+  if (e.flipper_changed && S.tab === "flipper") setTimeout(loadFlipper, 400);
 
   if (e.cancelled) {
     led(null); resetStages(); callout(e.error && e.error !== "Cancelled." ? e.error : "Cancelled.", "info");
@@ -945,7 +1135,8 @@ function press(name) {
   else if (name === "up" || name === "down") openLog(name === "up");
   else if (name === "ok") { if (S.tab !== "build") setTab("build"); build(); }
   else if (name === "back") {
-    if (!$("#picker").hidden) closePicker([]);
+    if (!$("#confirm").hidden) confirmDialog.cancel();
+    else if (!$("#picker").hidden) closePicker([]);
     else if (S.busy) cancel();
     else { LCD.poke(); LCD.say("Back? I'm right here.", 2500); }
   }
@@ -975,14 +1166,18 @@ function bind() {
   $("#search").addEventListener("input", () => renderCatalog());
   $("#catRefresh").onclick = () => { S.catalog = null; loadCatalog(true); };
   $("#pickSearch").addEventListener("input", renderPicker);
+  $("#flRefresh").onclick = () => { FL.apps = null; loadFlipper(); };
+  $("#flStop").onclick = () => { api.flipper_check_stop(); toast("Stopping after this app"); };
+  $("#flSearch").addEventListener("input", () => renderFlipper());
   $("#pickAll").onclick = () => { S.pickApps.forEach((a) => S.pickOn.add(a.appid)); renderPicker(); };
   $("#pickNone").onclick = () => { S.pickOn.clear(); renderPicker(); };
   $("#pickCancel").onclick = () => closePicker([]);
   $("#pickGo").onclick = () => closePicker([...S.pickOn]);
 
   document.addEventListener("keydown", (e) => {
-    const typing = ["url", "search", "pickSearch"].includes(document.activeElement && document.activeElement.id);
+    const typing = ["url", "search", "pickSearch", "flSearch"].includes(document.activeElement && document.activeElement.id);
     if (e.key === "Escape") { press("back"); return; }
+    if (!$("#confirm").hidden) return;   // the dialog's own buttons handle it
     if (!$("#picker").hidden) { if (e.key === "Enter" && S.pickOn.size) closePicker([...S.pickOn]); return; }
     if (e.ctrlKey && e.key.toLowerCase() === "l") { e.preventDefault(); setTab("build"); $("#url").focus(); $("#url").select(); return; }
     if (e.ctrlKey && e.key.toLowerCase() === "f") { e.preventDefault(); setTab("discover"); setTimeout(() => $("#search").focus(), 50); return; }

@@ -16,6 +16,7 @@ Copy-Item "$root\assets\icon.png" "$root\ui\icon.png" -Force
     --hidden-import device `
     --hidden-import catalog `
     --hidden-import flipper_storage `
+    --hidden-import fapmeta `
     --hidden-import serial.tools.list_ports_windows `
     --collect-submodules ufbt `
     --copy-metadata ufbt `

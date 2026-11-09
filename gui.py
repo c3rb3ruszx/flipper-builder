@@ -436,6 +436,128 @@ class Api:
                                     "error": str(e)}
             self._emit("device", device=self._device)
 
+    # ------------------------------------------------ what's on the Flipper
+    def _port(self):
+        import device
+        ports = device.find_ports()
+        if not ports:
+            raise fb.BuildError("No Flipper found on USB. Plug it in, unlock it, and close qFlipper.")
+        if len(ports) > 1:
+            raise fb.BuildError("More than one Flipper is plugged in. Leave just one connected.")
+        return ports[0]["port"]
+
+    _META_CACHE = fb.ROOT / ".cache" / "flipper_meta.json"
+
+    def _meta_cache(self):
+        try:
+            return json.loads(self._META_CACHE.read_text(encoding="utf-8"))
+        except Exception:  # noqa: BLE001
+            return {}
+
+    def flipper_list(self):
+        """Installed apps + SD space + any cached manifests (keyed path|size)."""
+        import device
+        try:
+            port = self._port()
+            r = device.list_apps(port, fb.sdk_dirs())
+        except (fb.BuildError, device.DeviceError) as e:
+            return {"error": str(e)}
+        cache = self._meta_cache()
+        for a in r["apps"]:
+            a["meta"] = cache.get(f"{a['path']}|{a['size']}")
+        return r
+
+    def flipper_check(self, apps):
+        """Read the manifest of each app (list of {path,size}) in the background; emits 'fmeta' events."""
+        if getattr(self, "_checking", False):
+            return {"error": "Already reading apps from the Flipper."}
+        self._checking = True
+
+        def work():
+            import device
+            import fapmeta
+            cache = self._meta_cache()
+            done = [0]
+            todo = []
+            for a in apps:   # cached ones first, instantly
+                meta = cache.get(f"{a['path']}|{a['size']}")
+                if meta is None:
+                    todo.append(a)
+                else:
+                    done[0] += 1
+                    self._emit("fmeta", path=a["path"], meta=meta, done=done[0], total=len(apps))
+
+            def on_file(a, data):
+                meta = fapmeta.parse(data) or {}
+                cache[f"{a['path']}|{a['size']}"] = meta
+                done[0] += 1
+                if done[0] % 10 == 0:
+                    self._save_meta(cache)
+                self._emit("fmeta", path=a["path"], meta=meta, done=done[0], total=len(apps))
+            try:
+                if todo:
+                    device.read_many(self._port(), fb.sdk_dirs(), todo, on_file,
+                                     should_stop=lambda: getattr(self, "_check_stop", False))
+                self._save_meta(cache)
+                self._emit("fcheck_done", done=done[0])
+            except (fb.BuildError, device.DeviceError) as e:
+                self._save_meta(cache)
+                self._emit("fcheck_done", error=str(e), done=done[0])
+            finally:
+                self._checking = False
+                self._check_stop = False
+        threading.Thread(target=work, daemon=True).start()
+        return {"ok": True}
+
+    def flipper_check_stop(self):
+        self._check_stop = True
+        return True
+
+    def _save_meta(self, cache):
+        try:
+            self._META_CACHE.parent.mkdir(parents=True, exist_ok=True)
+            self._META_CACHE.write_text(json.dumps(cache), encoding="utf-8")
+        except OSError:
+            pass
+
+    def flipper_open(self, path):
+        import device
+        try:
+            device.open_app(self._port(), fb.sdk_dirs(), path)
+            return {"ok": True}
+        except (fb.BuildError, device.DeviceError) as e:
+            return {"error": str(e)}
+
+    def flipper_remove(self, path):
+        """Delete one app from the Flipper's SD card (the UI asks the user to confirm first)."""
+        import device
+        if not (path.startswith("/ext/apps/") and path.lower().endswith(".fap")):
+            return {"error": "Only .fap apps under /ext/apps can be removed here."}
+        try:
+            port = self._port()
+            device.remove(port, fb.sdk_dirs(), path)
+            gone = not device.file_exists(port, fb.sdk_dirs(), path)
+            return {"ok": gone} if gone else {"error": "The Flipper didn't delete it."}
+        except (fb.BuildError, device.DeviceError) as e:
+            return {"error": str(e)}
+
+    def flipper_update(self, items):
+        """Replace installed apps with library builds, each at its existing path. items: [[path, local_file], ...]"""
+        pairs = [(local, path) for path, local in items if Path(local).is_file()
+                 and path.startswith("/ext/apps/") and path.lower().endswith(".fap")]
+        if not pairs:
+            return {"error": "Those builds' files are gone. Rebuild them first."}
+
+        def work(job):
+            import device
+            job.stage("send", f"{len(pairs)} app(s)")
+            try:
+                device.install_files(self._port(), fb.sdk_dirs(), pairs, log=job.log)
+            except device.DeviceError as e:
+                raise fb.BuildError(str(e))
+            return {"send_only": True, "installed": True, "flipper_changed": True, "updated": len(pairs)}
+        return self._run_job("install", work)
+
     # ------------------------------------------------ app update check
     def _update_check(self):
         try:
