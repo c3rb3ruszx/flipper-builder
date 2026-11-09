@@ -26,7 +26,9 @@ $links = @(
 )
 foreach ($l in $links) {
     $s = $shell.CreateShortcut($l)
-    $s.TargetPath = $exe; $s.WorkingDirectory = $Target; $s.IconLocation = "$exe,0"
+    # Arguments must be cleared: an older shortcut (from running the source) kept a .py argument,
+    # which made the exe start in command-line mode and quit without a window.
+    $s.TargetPath = $exe; $s.Arguments = ''; $s.WorkingDirectory = $Target; $s.IconLocation = "$exe,0"
     $s.Description = 'Paste a GitHub link, get a Flipper Zero .fap'
     $s.Save()
 }

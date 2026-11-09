@@ -695,7 +695,9 @@ if __name__ == "__main__":
         sys.stdout = open(os.devnull, "w")
     if sys.stderr is None:
         sys.stderr = open(os.devnull, "w")
-    if len(sys.argv) > 1:
-        sys.exit(cli(sys.argv[1:]))
+    # A stray script path (e.g. an old shortcut that ran "pythonw flipper_builder.py") is not a CLI call.
+    args = [a for a in sys.argv[1:] if not a.lower().endswith((".py", ".pyw"))]
+    if args:
+        sys.exit(cli(args))
     import gui
     gui.main()
