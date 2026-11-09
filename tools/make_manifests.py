@@ -75,8 +75,8 @@ PackageName: Flipper Workbench
 PackageUrl: {REPO}
 License: GPL-3.0
 LicenseUrl: {REPO}/blob/main/LICENSE
-ShortDescription: Build, install and manage your Flipper Zero's apps from your PC.
-Description: {DESC}
+ShortDescription: {json.dumps("Build, install and manage your Flipper Zero's apps from your PC.")}
+Description: {json.dumps(DESC)}
 Moniker: flipper-workbench
 Tags:
   - flipper-zero

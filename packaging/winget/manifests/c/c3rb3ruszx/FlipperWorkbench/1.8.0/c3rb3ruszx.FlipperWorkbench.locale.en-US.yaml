@@ -9,8 +9,8 @@ PackageName: Flipper Workbench
 PackageUrl: https://github.com/c3rb3ruszx/flipper-workbench
 License: GPL-3.0
 LicenseUrl: https://github.com/c3rb3ruszx/flipper-workbench/blob/main/LICENSE
-ShortDescription: Build, install and manage your Flipper Zero's apps from your PC.
-Description: Windows companion for the Flipper Zero: build apps from a GitHub link or the official catalog, install them over USB, update firmware, manage apps, files and backups, mirror the screen and use the Flipper's CLI.
+ShortDescription: "Build, install and manage your Flipper Zero's apps from your PC."
+Description: "Windows companion for the Flipper Zero: build apps from a GitHub link or the official catalog, install them over USB, update firmware, manage apps, files and backups, mirror the screen and use the Flipper's CLI."
 Moniker: flipper-workbench
 Tags:
   - flipper-zero
