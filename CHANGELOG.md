@@ -2,6 +2,19 @@
 
 Downloads for every version are on the [Releases](../../releases) page.
 
+## 1.6.0
+
+- **Renamed to Flipper Workbench.** It started as a builder and now also manages the apps, files,
+  backups and screen of your Flipper, so the name says so. The repo moved to
+  `c3rb3ruszx/flipper-workbench`; the old link redirects.
+- Upgrading from Flipper Builder: unzip the new release, then move `.cache`, `output`,
+  `library.json` and `settings.json` from the old folder into the new one (or unzip over the old
+  folder). Library entries find their built apps again after a folder move, and backups made by
+  Flipper Builder still restore.
+- `install.ps1` (for running from source) migrates an old Flipper Builder install by itself.
+- Fix: building one app from a repo no longer deletes the other apps you built earlier from the same
+  repo (for example two folders of one collection) from `output`.
+
 ## 1.5.0
 
 - **Screen mirror + remote**: the app's LCD shows your Flipper's real screen live; the d-pad and

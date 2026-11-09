@@ -16,7 +16,7 @@ REPO = "flipperdevices/flipper-application-catalog"
 TREE_URL = f"https://api.github.com/repos/{REPO}/git/trees/main?recursive=1"
 RAW = f"https://raw.githubusercontent.com/{REPO}/main/"
 MAX_AGE = 7 * 24 * 3600
-UA = {"User-Agent": "flipper-builder"}
+UA = {"User-Agent": "flipper-workbench"}
 
 
 def _get(url, timeout=30):

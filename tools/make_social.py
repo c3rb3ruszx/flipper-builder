@@ -54,7 +54,7 @@ d.ellipse((cx - 17, cy - 17, cx + 17, cy + 17), fill=(58, 58, 58))
 d.ellipse((cx + 96, cy - 20, cx + 136, cy + 20), fill=(36, 36, 36), outline=(52, 52, 52), width=2)
 
 # ---- text block
-pix = ImageFont.truetype(str(ROOT / "ui" / "vendor" / "fonts" / "PixelifySans.ttf"), 92)
+pix = ImageFont.truetype(str(ROOT / "ui" / "vendor" / "fonts" / "PixelifySans.ttf"), 82)
 try:
     pix.set_variation_by_axes([700])
 except Exception:  # noqa: BLE001
@@ -66,16 +66,16 @@ icon = Image.open(ROOT / "assets" / "icon.png").convert("RGBA").resize((88, 88),
 x0 = 84
 img.paste(icon, (x0, 92), icon)
 d.text((x0, 196), "Flipper", font=pix, fill=TEXT)
-d.text((x0, 290), "Builder", font=pix, fill=ORANGE)
-d.text((x0, 410), "GitHub link in, app on your", font=body, fill=MUTED)
-d.text((x0, 452), "Flipper Zero out.", font=body, fill=MUTED)
+d.text((x0, 284), "Workbench", font=pix, fill=ORANGE)
+d.text((x0, 410), "Build, install and manage", font=body, fill=MUTED)
+d.text((x0, 452), "Flipper Zero apps from your PC.", font=body, fill=MUTED)
 # feature chips
 x = x0
-for label in ("OFFICIAL", "MOMENTUM", "UNLEASHED", "USB INSTALL"):
+for label in ("BUILD", "APPS", "FILES", "BACKUPS", "MIRROR"):
     w = int(d.textlength(label, font=small)) + 28
     d.rounded_rectangle((x, 528, x + w, 568), radius=9, fill=(43, 26, 10), outline=(150, 78, 10), width=2)
     d.text((x + 14, 535), label, font=small, fill=(255, 160, 64))
-    x += w + 12
+    x += w + 10
 
 out = ROOT / "assets" / "social-preview.png"
 img.save(out, optimize=True)

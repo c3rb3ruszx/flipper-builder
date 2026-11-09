@@ -1,24 +1,27 @@
-# Flipper Builder
+# Flipper Workbench
 
-[![Latest release](https://img.shields.io/github/v/release/c3rb3ruszx/flipper-builder?color=ff8200&label=release)](../../releases/latest)
+[![Latest release](https://img.shields.io/github/v/release/c3rb3ruszx/flipper-workbench?color=ff8200&label=release)](../../releases/latest)
 [![Platform](https://img.shields.io/badge/platform-Windows%2010%20%7C%2011-ff8200)](../../releases/latest)
-[![License](https://img.shields.io/github/license/c3rb3ruszx/flipper-builder?color=ff8200)](LICENSE)
+[![License](https://img.shields.io/github/license/c3rb3ruszx/flipper-workbench?color=ff8200)](LICENSE)
 
-**Paste a GitHub link to a Flipper Zero app, press Build, and it's on your Flipper.**
+**Build, install and manage your Flipper Zero's apps from your PC.**
 
-![Flipper Builder compiling an app while the dolphin solders](assets/screenshot.png)
+![Flipper Workbench compiling an app while the dolphin solders](assets/screenshot.png)
 
-A Windows app around [ufbt](https://github.com/flipperdevices/flipperzero-ufbt), Flipper's official
-build tool. No command line and no SDK setup: it gets the right SDK for your firmware, fetches the
-code, builds the app and installs it over USB. The dolphin keeps you company on a Flipper-style LCD
-the whole time: it reads the repo, solders while it compiles, DJs when it's done and cries when the
-build breaks.
+A Windows desktop companion for the Flipper Zero. Paste a GitHub link and it builds the app for your
+exact firmware with [ufbt](https://github.com/flipperdevices/flipperzero-ufbt), Flipper's official
+build tool, then installs it over USB. No command line, no SDK setup. It also lists and manages
+every app on your Flipper, browses and backs up the SD card, and mirrors the Flipper's screen with a
+working remote. The dolphin keeps you company on a Flipper-style LCD the whole time: it reads the
+repo, solders while it compiles, DJs when it's done and cries when the build breaks.
+
+*Called Flipper Builder up to version 1.5.0.*
 
 **[Download the latest release](../../releases/latest)** · [What's new](CHANGELOG.md)
 
 ## Quick start
 
-1. Download `FlipperBuilder-win64.zip`, unzip it anywhere, and run `FlipperBuilder.exe`.
+1. Download `FlipperWorkbench-win64.zip`, unzip it anywhere, and run `FlipperWorkbench.exe`.
 2. Plug in your Flipper (close qFlipper). The app reads its firmware and picks the matching SDK.
 3. Paste a GitHub link to an app, or pick one on the **Discover** tab, and press **Build**.
 
@@ -64,7 +67,7 @@ build breaks.
 - The d-pad works like a Flipper's: left/right switches firmware, OK builds, Back cancels. Keyboard:
   arrows, Enter, Esc, Ctrl+L (link), Ctrl+F (search). Poke the dolphin.
 - SDKs refresh themselves once a day; the **SDK** button in the header forces it.
-- A notice in the header when a new version of Flipper Builder is out.
+- A notice in the header when a new version of Flipper Workbench is out.
 
 ## Screenshots
 
@@ -79,20 +82,20 @@ build breaks.
 
 ## Install
 
-Download `FlipperBuilder-win64.zip` from [Releases](../../releases/latest), unzip anywhere and run
-`FlipperBuilder.exe`. Needs Windows 10 or 11 with Microsoft Edge WebView2 (built into Windows 11).
+Download `FlipperWorkbench-win64.zip` from [Releases](../../releases/latest), unzip anywhere and run
+`FlipperWorkbench.exe`. Needs Windows 10 or 11 with Microsoft Edge WebView2 (built into Windows 11).
 The first build downloads Flipper's toolchain (a few hundred MB, once). SDKs and built apps are kept
 next to the exe. For USB features, close qFlipper: only one program can use the Flipper's USB port.
 
 ## Run from source
 
-Needs Windows and Python 3.10+. Double-click `Flipper Builder.bat`, or:
+Needs Windows and Python 3.10+. Double-click `Flipper Workbench.bat`, or:
 
 ```
 python -m venv .venv
 .venv\Scripts\pip install ufbt pywebview pyserial
-.venv\Scripts\python flipper_builder.py                                                    # GUI
-.venv\Scripts\python flipper_builder.py <github-url-or-folder> --fw momentum-dev [--send]  # CLI
+.venv\Scripts\python flipper_workbench.py                                                    # GUI
+.venv\Scripts\python flipper_workbench.py <github-url-or-folder> --fw momentum-dev [--send]  # CLI
 ```
 
 `--fw` is one of `official`, `official-dev`, `momentum`, `momentum-dev`, `unleashed`, `unleashed-dev`.
@@ -104,12 +107,14 @@ against a built-in mock, which is handy for working on the design.
 
 ```
 .venv\Scripts\pip install pyinstaller pillow
-powershell -ExecutionPolicy Bypass -File tools\build_exe.ps1     # -> dist\FlipperBuilder\
+powershell -ExecutionPolicy Bypass -File tools\build_exe.ps1     # -> dist\FlipperWorkbench\
 powershell -ExecutionPolicy Bypass -File tools\install.ps1       # optional: Start menu, desktop, Apps list
 ```
 
-`install.ps1` installs to `%LOCALAPPDATA%\Programs\FlipperBuilder` by default (`-Target <folder>` to
-change it) and registers a per-user uninstaller. No admin rights needed.
+`install.ps1` installs to `%LOCALAPPDATA%\Programs\FlipperWorkbench` by default (`-Target <folder>` to
+change it) and registers a per-user uninstaller. No admin rights needed. It also takes over an old
+Flipper Builder install: SDKs, built apps, library and settings move to the new folder, and the old
+shortcuts and Apps entry are removed.
 
 ## How it works
 
@@ -135,7 +140,7 @@ caches it for a week.
 - **ufbt** and the **storage client** (`flipper_storage.py`) by Flipper Devices, GPL-3.0.
 - **App catalog index**: Flipper's official Apps Catalog; each app belongs to its author.
 
-Flipper Builder is an unofficial community tool and is not affiliated with or endorsed by Flipper Devices Inc.
+Flipper Workbench is an unofficial community tool and is not affiliated with or endorsed by Flipper Devices Inc.
 "Flipper Zero" is a trademark of Flipper Devices Inc.
 
 ## License

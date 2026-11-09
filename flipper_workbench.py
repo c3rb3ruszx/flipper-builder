@@ -1,7 +1,7 @@
-"""Flipper Builder: paste a GitHub link to a Flipper Zero app, get a .fap.
+"""Flipper Workbench: build, install and manage Flipper Zero apps from your PC.
 
-GUI:  pythonw flipper_builder.py            (window: gui.py, UI: ui/)
-CLI:  python flipper_builder.py <github-url> [--fw official|official-dev|momentum|momentum-dev|unleashed|unleashed-dev] [--send]
+GUI:  pythonw flipper_workbench.py            (window: gui.py, UI: ui/)
+CLI:  python flipper_workbench.py <github-url> [--fw official|official-dev|momentum|momentum-dev|unleashed|unleashed-dev] [--send]
 """
 
 import base64
@@ -19,14 +19,15 @@ import urllib.request
 import zipfile
 from pathlib import Path
 
-APP_NAME = "Flipper Builder"
-APP_VERSION = "1.5.0"
-APP_ID = "c3rb3ruszx.FlipperBuilder"
-REPO_URL = "https://github.com/c3rb3ruszx/flipper-builder"
+APP_NAME = "Flipper Workbench"
+APP_VERSION = "1.6.0"
+APP_ID = "c3rb3ruszx.FlipperWorkbench"
+REPO_URL = "https://github.com/c3rb3ruszx/flipper-workbench"
 FROZEN = getattr(sys, "frozen", False)
 # Frozen app: data lives next to the .exe. From source: next to this file.
 ROOT = Path(sys.executable).resolve().parent if FROZEN else Path(__file__).resolve().parent
-ROOT = Path(os.environ.get("FLIPPER_BUILDER_HOME", ROOT))
+# FLIPPER_BUILDER_HOME is the pre-1.6 name, still honoured
+ROOT = Path(os.environ.get("FLIPPER_WORKBENCH_HOME") or os.environ.get("FLIPPER_BUILDER_HOME") or ROOT)
 BUNDLE = Path(getattr(sys, "_MEIPASS", Path(__file__).resolve().parent))
 ICON = BUNDLE / "assets" / "icon.ico"
 UI_DIR = BUNDLE / "ui"
@@ -299,11 +300,30 @@ def install_to_flipper(job, files, port=None):
 
 # ---------------------------------------------------------------- library of built apps
 
+def _rebase_output(path):
+    """A built file whose folder was moved (or renamed, as in 1.6.0) is looked up under this ROOT's output/."""
+    if not path or Path(path).exists():
+        return path
+    parts = Path(path).parts
+    low = [p.lower() for p in parts]
+    if "output" not in low:
+        return path
+    last = len(low) - 1 - low[::-1].index("output")
+    tail = parts[last + 1:]
+    moved = OUT_DIR.joinpath(*tail) if tail else None
+    return str(moved) if moved and moved.exists() else path
+
+
 def load_library():
     try:
-        return json.loads(LIBRARY.read_text(encoding="utf-8"))
+        items = json.loads(LIBRARY.read_text(encoding="utf-8"))
     except Exception:  # noqa: BLE001
         return []
+    for i in items:
+        i["file"] = _rebase_output(i.get("file"))
+        for f in i.get("files") or []:
+            f["path"] = _rebase_output(f.get("path"))
+    return items
 
 
 def save_library(items):
@@ -583,8 +603,8 @@ def build(source, fw="official", send=False, job=None, install=False, only=None)
     env = ensure_sdk(job, fw)
     version, api = sdk_version(fw), sdk_api(fw)
     out = OUT_DIR / f"{repo}__{fw}"
-    if not only:
-        rmtree(out)
+    # Never clear this folder: it is shared by every app built from this repo for this firmware
+    # (e.g. two subfolders of one collection), and the library points at those files. New builds overwrite.
     out.mkdir(parents=True, exist_ok=True)
 
     job.stage("build", f"{len(apps)} app(s)")
@@ -695,7 +715,7 @@ if __name__ == "__main__":
         sys.stdout = open(os.devnull, "w")
     if sys.stderr is None:
         sys.stderr = open(os.devnull, "w")
-    # A stray script path (e.g. an old shortcut that ran "pythonw flipper_builder.py") is not a CLI call.
+    # A stray script path (e.g. an old shortcut that ran "pythonw flipper_workbench.py") is not a CLI call.
     args = [a for a in sys.argv[1:] if not a.lower().endswith((".py", ".pyw"))]
     if args:
         sys.exit(cli(args))

@@ -42,7 +42,7 @@ FONTS = {
 
 
 def get(url):
-    req = urllib.request.Request(url, headers={"User-Agent": "flipper-builder-assets"})
+    req = urllib.request.Request(url, headers={"User-Agent": "flipper-workbench-assets"})
     with urllib.request.urlopen(req, timeout=60) as r:
         return r.read()
 

@@ -1,4 +1,4 @@
-"""Flipper Builder window: a pywebview (WebView2) shell around ui/index.html.
+"""Flipper Workbench window: a pywebview (WebView2) shell around ui/index.html.
 
 Python -> JS: batched events via window.fb.onEvents([...]).
 JS -> Python: the public methods of Api (pywebview's js_api bridge).
@@ -17,7 +17,7 @@ import urllib.request
 import webbrowser
 from pathlib import Path
 
-import flipper_builder as fb
+import flipper_workbench as fb
 
 MAX_RECENT = 8
 AFTER_MODES = ("none", "install", "open")   # what happens after a build: nothing / copy to SD / copy + open
@@ -786,8 +786,8 @@ class Api:
     def _update_check(self):
         try:
             req = urllib.request.Request(
-                "https://api.github.com/repos/c3rb3ruszx/flipper-builder/releases/latest",
-                headers={"User-Agent": "flipper-builder", "Accept": "application/vnd.github+json"})
+                "https://api.github.com/repos/c3rb3ruszx/flipper-workbench/releases/latest",
+                headers={"User-Agent": "flipper-workbench", "Accept": "application/vnd.github+json"})
             with urllib.request.urlopen(req, timeout=15) as r:
                 rel = json.loads(r.read())
             latest = rel.get("tag_name", "")
@@ -838,9 +838,9 @@ def _dark_title_bar(window):
 
 
 def _no_webview2_message(err):
-    msg = ("Flipper Builder needs Microsoft Edge WebView2, which is missing or broken on this PC.\n\n"
+    msg = ("Flipper Workbench needs Microsoft Edge WebView2, which is missing or broken on this PC.\n\n"
            "Install the 'Evergreen Bootstrapper' from\n"
-           "https://developer.microsoft.com/microsoft-edge/webview2/\nthen open Flipper Builder again.\n\n"
+           "https://developer.microsoft.com/microsoft-edge/webview2/\nthen open Flipper Workbench again.\n\n"
            f"Details: {err}")
     try:
         ctypes.windll.user32.MessageBoxW(None, msg, fb.APP_NAME, 0x10)

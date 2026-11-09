@@ -1,4 +1,4 @@
-/* Flipper Builder UI. Talks to Python through window.pywebview.api (see gui.py). */
+/* Flipper Workbench UI. Talks to Python through window.pywebview.api (see gui.py). */
 (() => {
 "use strict";
 
@@ -242,12 +242,12 @@ function mockApi() {
     { key: "c", source: "https://github.com/x/dice", repo: "x/dice", name: "Dice D&D", appid: "dice", category: "Games", version: "1.2", fw: "official", sdk: "1.5.1", api: "88.2", file: "C:\\d.fap", files: [{ path: "C:\\d.fap" }], size: 9000, built: Date.now() / 1000 - 600 },
   ];
   return {
-    init: async () => ({ version: "1.3.0", repo: "https://github.com/c3rb3ruszx/flipper-builder",
+    init: async () => ({ version: "1.3.0", repo: "https://github.com/c3rb3ruszx/flipper-workbench",
       firmwares: fws.map(([id, label, short, sdk, api]) => ({ id, label, short, sdk, api })), fw: "momentum-dev", after: "none", auto_fw: true,
       recent: [{ url: "https://github.com/jblanked/FlipWiFi", fw: "momentum-dev", name: "FlipWiFi", repo: "jblanked/FlipWiFi", ok: true, t: 0 }],
       clipboard: "", out_dir: "C:\\output", device: { connected: false }, library_count: lib.length }),
     start_background: async () => { later(2500, [{ type: "device", device: { connected: true, port: "COM7", name: "Ochenko", fw: "momentum-dev", fw_name: "Momentum dev", version: "mntm-dev", commit: "d3f89dfe", api: "87.1" } }]);
-      later(4000, [{ type: "update", version: "1.4.0", url: "https://github.com/c3rb3ruszx/flipper-builder/releases" }]); return true; },
+      later(4000, [{ type: "update", version: "1.4.0", url: "https://github.com/c3rb3ruszx/flipper-workbench/releases" }]); return true; },
     clipboard: async () => "", set_prefs: async () => true, refresh_device: async () => ({}),
     build: async (url, fw) => {
       const fail = /fail/.test(url), multi = /multi/.test(url);

@@ -149,7 +149,7 @@ def read_info(port, sdk_dirs):
 
 
 def classify(info):
-    """Map device info to (firmware id, nice name). Firmware id matches flipper_builder.FIRMWARES."""
+    """Map device info to (firmware id, nice name). Firmware id matches flipper_workbench.FIRMWARES."""
     fork = (info.get("firmware_origin_fork") or "").lower()
     git = (info.get("firmware_origin_git") or "").lower()
     version = (info.get("firmware_version") or "").lower()
@@ -525,7 +525,7 @@ def backup(port, sdk_dirs, names, zip_path, device_info=None, progress=lambda do
                     z.writestr(f[len("/ext/"):], data)
                     done += size
                     progress(done, total, f)
-                z.writestr("_flipper_builder_backup.json", json.dumps({
+                z.writestr(BACKUP_META, json.dumps({
                     "created": int(time.time()), "folders": names, "files": len(files), "bytes": done,
                     "device": device_info or {}}, indent=1))
         finally:
@@ -534,13 +534,20 @@ def backup(port, sdk_dirs, names, zip_path, device_info=None, progress=lambda do
     return {"path": str(zip_path), "files": len(files), "bytes": done}
 
 
+BACKUP_META = "_flipper_workbench_backup.json"
+_META_NAMES = (BACKUP_META, "_flipper_builder_backup.json")   # backups made before the rename
+
+
 def backup_info(zip_path):
     with zipfile.ZipFile(zip_path) as z:
-        try:
-            meta = json.loads(z.read("_flipper_builder_backup.json"))
-        except KeyError:
-            meta = {}
-        names = [i for i in z.infolist() if not i.is_dir() and i.filename != "_flipper_builder_backup.json"]
+        meta = {}
+        for n in _META_NAMES:
+            try:
+                meta = json.loads(z.read(n))
+                break
+            except KeyError:
+                pass
+        names = [i for i in z.infolist() if not i.is_dir() and i.filename not in _META_NAMES]
         meta["files"] = len(names)
         meta["bytes"] = sum(i.file_size for i in names)
     return meta
@@ -549,7 +556,7 @@ def backup_info(zip_path):
 def restore(port, sdk_dirs, zip_path, progress=lambda done, total, name: None, should_stop=lambda: False):
     """Copy every file in a backup zip back to /ext, replacing files with the same path. Deletes nothing."""
     with zipfile.ZipFile(zip_path) as z:
-        items = [i for i in z.infolist() if not i.is_dir() and i.filename != "_flipper_builder_backup.json"]
+        items = [i for i in z.infolist() if not i.is_dir() and i.filename not in _META_NAMES]
         for i in items:   # never let a crafted zip write outside /ext
             if i.filename.startswith(("/", "\\")) or ".." in i.filename.replace("\\", "/").split("/"):
                 raise DeviceError(f"Unsafe path in backup: {i.filename}")
