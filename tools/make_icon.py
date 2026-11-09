@@ -26,6 +26,22 @@ d.ellipse((690, 475, 750, 535), fill=LIGHT)
 
 out = Path(__file__).resolve().parent.parent / "assets"
 out.mkdir(exist_ok=True)
-img.resize((256, 256), Image.LANCZOS).save(out / "icon.png")
-img.save(out / "icon.ico", sizes=[(16, 16), (24, 24), (32, 32), (48, 48), (64, 64), (128, 128), (256, 256)])
-print("wrote", out / "icon.ico")
+
+
+def write_if_changed(path, save):
+    """Only touch the file when the icon actually changed: Explorer often keeps .ico files open
+    for previews, which makes rewriting an identical icon fail for no reason."""
+    import io
+    buf = io.BytesIO()
+    save(buf)
+    data = buf.getvalue()
+    if path.exists() and path.read_bytes() == data:
+        print("unchanged", path)
+        return
+    path.write_bytes(data)
+    print("wrote", path)
+
+
+write_if_changed(out / "icon.png", lambda f: img.resize((256, 256), Image.LANCZOS).save(f, format="PNG"))
+write_if_changed(out / "icon.ico", lambda f: img.save(f, format="ICO",
+                 sizes=[(16, 16), (24, 24), (32, 32), (48, 48), (64, 64), (128, 128), (256, 256)]))
