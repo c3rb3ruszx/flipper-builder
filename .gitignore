@@ -1,0 +1,12 @@
+.venv/
+.cache/
+dist/
+build/
+output/
+work/
+sdk/
+settings.json
+__pycache__/
+*.pyc
+*.spec
+CLAUDE.md
