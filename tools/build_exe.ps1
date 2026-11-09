@@ -1,13 +1,18 @@
-﻿# Builds dist\FlipperBuilder\FlipperBuilder.exe (one-folder app) with PyInstaller.
+# Builds dist\FlipperBuilder\FlipperBuilder.exe (one-folder app) with PyInstaller.
 $ErrorActionPreference = 'Stop'
 $root = Split-Path -Parent $PSScriptRoot
 Set-Location $root
 $py = Join-Path $root '.venv\Scripts\python.exe'
 & $py tools\make_icon.py
+Copy-Item "$root\assets\icon.png" "$root\ui\icon.png" -Force
 & $py -m PyInstaller --noconfirm --clean --windowed --onedir `
     --name FlipperBuilder `
     --icon "$root\assets\icon.ico" `
     --add-data "$root\assets;assets" `
+    --add-data "$root\ui;ui" `
+    --collect-all webview `
+    --hidden-import clr `
+    --hidden-import gui `
     --collect-submodules ufbt `
     --copy-metadata ufbt `
     --version-file "$root\tools\version_info.txt" `

@@ -1,12 +1,13 @@
 ﻿"""Flipper Builder: paste a GitHub link to a Flipper Zero app, get a .fap.
 
-GUI:  pythonw flipper_builder.py
-CLI:  python flipper_builder.py <github-url> [--fw official|official-dev|momentum|unleashed] [--send]
+GUI:  pythonw flipper_builder.py            (window: gui.py, UI: ui/)
+CLI:  python flipper_builder.py <github-url> [--fw official|official-dev|momentum|momentum-dev|unleashed] [--send]
 """
 
+import base64
 import json
+import logging
 import os
-import queue
 import re
 import shutil
 import stat
@@ -14,33 +15,37 @@ import subprocess
 import sys
 import threading
 import time
-from pathlib import Path
-
-import logging
 import urllib.request
 import zipfile
+from pathlib import Path
 
 APP_NAME = "Flipper Builder"
+APP_VERSION = "1.1.0"
 APP_ID = "c3rb3ruszx.FlipperBuilder"
+REPO_URL = "https://github.com/c3rb3ruszx/flipper-builder"
 FROZEN = getattr(sys, "frozen", False)
 # Frozen app: data lives next to the .exe. From source: next to this file.
 ROOT = Path(sys.executable).resolve().parent if FROZEN else Path(__file__).resolve().parent
 ROOT = Path(os.environ.get("FLIPPER_BUILDER_HOME", ROOT))
 BUNDLE = Path(getattr(sys, "_MEIPASS", Path(__file__).resolve().parent))
 ICON = BUNDLE / "assets" / "icon.ico"
+UI_DIR = BUNDLE / "ui"
 # .cache holds re-downloadable stuff (SDKs, temp clones); safe to delete
 SDK_DIR = ROOT / ".cache" / "sdk"
 WORK_DIR = ROOT / ".cache" / "work"
 OUT_DIR = ROOT / "output"
 SETTINGS = ROOT / "settings.json"
 SDK_MAX_AGE = 24 * 3600  # refresh the SDK at most once a day
+MAX_APPS = 25
 
+MOMENTUM_INDEX = "--index-url=https://up.momentum-fw.dev/firmware/directory.json"
+# id: (label, short label, ufbt update args)
 FIRMWARES = {
-    "official": ("Official firmware (release)", ["--channel=release"]),
-    "official-dev": ("Official firmware (dev)", ["--channel=dev"]),
-    "momentum": ("Momentum", ["--index-url=https://up.momentum-fw.dev/firmware/directory.json", "--channel=release"]),
-    "momentum-dev": ("Momentum (dev)", ["--index-url=https://up.momentum-fw.dev/firmware/directory.json", "--channel=dev"]),
-    "unleashed": ("Unleashed", ["--index-url=https://up.unleashedflip.com/directory.json", "--channel=release"]),
+    "official": ("Official firmware (release)", "OFW", ["--channel=release"]),
+    "official-dev": ("Official firmware (dev)", "OFW DEV", ["--channel=dev"]),
+    "momentum": ("Momentum", "MOMENTUM", [MOMENTUM_INDEX, "--channel=release"]),
+    "momentum-dev": ("Momentum (dev)", "MNTM DEV", [MOMENTUM_INDEX, "--channel=dev"]),
+    "unleashed": ("Unleashed", "UNLEASHED", ["--index-url=https://up.unleashedflip.com/directory.json", "--channel=release"]),
 }
 
 ANSI = re.compile(r"\x1b\[[0-9;?]*[A-Za-z]")
@@ -51,25 +56,70 @@ class BuildError(Exception):
     pass
 
 
+class Cancelled(BuildError):
+    pass
+
+
+class Job:
+    """Hooks a build reports through. The CLI uses the defaults; the GUI overrides them."""
+
+    def __init__(self, log=print, stage=None, progress=None, result=None):
+        self.log = log
+        self.stage = stage or (lambda name, detail="": None)
+        self.progress = progress or (lambda value: None)
+        self.result = result or (lambda res: None)
+        self.cancelled = threading.Event()
+        self.proc = None
+
+    def check(self):
+        if self.cancelled.is_set():
+            raise Cancelled("Cancelled.")
+
+    def cancel(self):
+        self.cancelled.set()
+        p = self.proc
+        if p and p.poll() is None:
+            subprocess.run(["taskkill", "/T", "/F", "/PID", str(p.pid)], capture_output=True,
+                           creationflags=NO_WINDOW)
+
+
 # ---------------------------------------------------------------- helpers
 
-def run(cmd, cwd=None, env=None, log=print, check=True):
-    """Run a command, streaming its output to log. Returns (code, output)."""
-    log("$ " + " ".join(str(c) for c in cmd))
-    p = subprocess.Popen(
-        [str(c) for c in cmd], cwd=cwd, env=env, stdout=subprocess.PIPE,
-        stderr=subprocess.STDOUT, stdin=subprocess.DEVNULL, text=True,
-        encoding="utf-8", errors="replace", creationflags=NO_WINDOW,
-    )
+def _stream(job, popen_args, on_line=None, **kw):
+    job.check()
+    p = subprocess.Popen(popen_args, stdout=subprocess.PIPE, stderr=subprocess.STDOUT,
+                         stdin=subprocess.DEVNULL, text=True, encoding="utf-8", errors="replace",
+                         creationflags=NO_WINDOW, **kw)
+    job.proc = p
     lines = []
-    for line in p.stdout:
-        line = ANSI.sub("", line.rstrip())
-        lines.append(line)
-        log(line)
-    p.wait()
-    if check and p.returncode != 0:
-        raise BuildError(f"Command failed (exit {p.returncode}): {cmd[0]} {cmd[1] if len(cmd) > 1 else ''}")
-    return p.returncode, "\n".join(lines)
+    try:
+        for line in p.stdout:
+            line = ANSI.sub("", line.rstrip())
+            lines.append(line)
+            job.log(line)
+            if on_line:
+                on_line(line)
+        p.wait()
+    finally:
+        job.proc = None
+    job.check()
+    return p.returncode, lines
+
+
+def run(job, cmd, cwd=None, env=None, check=True, quiet=False):
+    """Run a command, streaming its output to the job log. Returns (code, lines)."""
+    if not quiet:
+        job.log("$ " + " ".join(str(c) for c in cmd))
+    saved = job.log
+    if quiet:
+        job.log = lambda _: None
+    try:
+        code, lines = _stream(job, [str(c) for c in cmd], cwd=cwd, env=env)
+    finally:
+        job.log = saved
+    if check and code != 0:
+        raise BuildError(f"Command failed (exit {code}): {cmd[0]} {cmd[1] if len(cmd) > 1 else ''}")
+    return code, lines
 
 
 def rmtree(path):
@@ -101,13 +151,15 @@ def parse_github_url(url):
     return owner, repo, rest
 
 
-def resolve_ref(remote, parts, env, log):
-    """Split path_parts into (ref, subdir). ref None = default branch."""
+def resolve_ref(job, remote, parts, env):
+    """Split path_parts into (ref, subdir, is_sha). ref None = default branch."""
     if not parts:
         return None, "", False
-    _, out = run(["git", "ls-remote", "--heads", "--tags", remote], env=env, log=lambda _: None)
+    code, lines = run(job, ["git", "ls-remote", "--heads", "--tags", remote], env=env, check=False, quiet=True)
+    if code != 0:
+        raise BuildError("Couldn't reach that repo. Is the link right and the repo public?")
     refs = set()
-    for line in out.splitlines():
+    for line in lines:
         if "\trefs/" in line:
             name = line.split("\t", 1)[1]
             name = re.sub(r"^refs/(heads|tags)/", "", name).removesuffix("^{}")
@@ -123,24 +175,32 @@ def resolve_ref(remote, parts, env, log):
 
 def fam_info(fam_path):
     text = fam_path.read_text(encoding="utf-8", errors="replace")
+
     def grab(key):
-        m = re.search(key + r"\s*=\s*[\"']([^\"']+)[\"']", text)
+        m = re.search(r"\b" + key + r"\s*=\s*[\"']([^\"']+)[\"']", text)
         return m.group(1) if m else None
     types = re.findall(r"apptype\s*=\s*FlipperAppType\.(\w+)", text)
     return {
         "appid": grab("appid") or fam_path.parent.name,
         "name": grab("name") or fam_path.parent.name,
         "category": grab("fap_category") or "Misc",
+        "icon": grab("fap_icon"),
+        "version": grab("fap_version"),
+        "author": grab("fap_author"),
+        "description": grab("fap_description"),
         "types": types,
         "dir": fam_path.parent,
     }
+
+
+SKIP_DIRS = {".git", "dist", "build", ".ufbt", "node_modules", ".vscode"}
 
 
 def find_apps(base):
     """Top-most folders holding an application.fam with an external (.fap) app."""
     apps, skipped = [], []
     for dirpath, dirnames, filenames in os.walk(base):
-        dirnames[:] = [d for d in dirnames if d not in (".git", "dist", "build", ".ufbt", "node_modules", ".vscode")]
+        dirnames[:] = [d for d in dirnames if d not in SKIP_DIRS]
         if "application.fam" in filenames:
             info = fam_info(Path(dirpath) / "application.fam")
             if any("EXTERNAL" in t for t in info["types"]) or not info["types"]:
@@ -151,6 +211,23 @@ def find_apps(base):
     return apps, skipped
 
 
+def count_sources(app_dir):
+    n = 0
+    for dirpath, dirnames, filenames in os.walk(app_dir):
+        dirnames[:] = [d for d in dirnames if d not in SKIP_DIRS]
+        n += sum(f.endswith((".c", ".cpp", ".cc")) for f in filenames)
+    return max(n, 1)
+
+
+def icon_data_uri(app):
+    if not app.get("icon"):
+        return None
+    p = app["dir"] / app["icon"]
+    if not p.is_file() or p.stat().st_size > 64_000:
+        return None
+    return "data:image/png;base64," + base64.b64encode(p.read_bytes()).decode()
+
+
 def ufbt_env(fw):
     env = os.environ.copy()
     home = str(SDK_DIR / fw)
@@ -158,6 +235,13 @@ def ufbt_env(fw):
     env["FBT_TOOLCHAIN_PATH"] = str(SDK_DIR / "_toolchain")
     env["GIT_TERMINAL_PROMPT"] = "0"
     return env
+
+
+def sdk_version(fw):
+    try:
+        return json.loads((SDK_DIR / fw / "current" / "ufbt_state.json").read_text())["version"]
+    except Exception:  # noqa: BLE001
+        return None
 
 
 class _LogForward(logging.Handler):
@@ -170,26 +254,28 @@ class _LogForward(logging.Handler):
         self.log(self.format(record))
 
 
-def ensure_sdk(fw, log, force=False):
+def ensure_sdk(job, fw, force=False):
     """Download/refresh the SDK using ufbt's bootstrap module, in-process."""
     env = ufbt_env(fw)
     stamp = SDK_DIR / fw / ".last_update"
     fresh = stamp.exists() and time.time() - stamp.stat().st_mtime < SDK_MAX_AGE
     if fresh and not force and (SDK_DIR / fw / "current").exists():
+        job.log(f"SDK {sdk_version(fw) or ''} is up to date (checked in the last 24h).")
         return env
-    log(f"== Getting the latest {FIRMWARES[fw][0]} SDK")
+    job.log(f"== Getting the latest {FIRMWARES[fw][0]} SDK")
     from ufbt.bootstrap import bootstrap_cli
     os.environ["FBT_TOOLCHAIN_PATH"] = env["FBT_TOOLCHAIN_PATH"]
-    handler = _LogForward(log)
+    handler = _LogForward(job.log)
     root_logger = logging.getLogger()
     root_logger.addHandler(handler)
     root_logger.setLevel(logging.INFO)
     try:
-        code = bootstrap_cli(["--ufbt-home", env["UFBT_HOME"], "update", *FIRMWARES[fw][1]])
+        code = bootstrap_cli(["--ufbt-home", env["UFBT_HOME"], "update", *FIRMWARES[fw][2]])
     except SystemExit as e:
         code = e.code
     finally:
         root_logger.removeHandler(handler)
+    job.check()
     if code not in (0, None) or not (SDK_DIR / fw / "current").exists():
         raise BuildError("Couldn't download the SDK. Check your internet connection.")
     stamp.parent.mkdir(parents=True, exist_ok=True)
@@ -197,60 +283,67 @@ def ensure_sdk(fw, log, force=False):
     return env
 
 
-def run_ufbt(app_dir, env, log, *targets):
+def run_ufbt(job, app_dir, env, *targets, on_line=None):
     """What the `ufbt` command does: enter Flipper's toolchain env and run SCons.
     The toolchain ships its own Python, so this works from a frozen .exe too."""
     home = env["UFBT_STATE_DIR"]
     fbtenv = Path(home) / "current" / "scripts" / "toolchain" / "fbtenv.cmd"
     scripts = Path(home) / "current" / "scripts" / "ufbt"
     if not fbtenv.exists() or not scripts.exists():
-        raise BuildError("SDK is incomplete. Press 'Update SDK now' and try again.")
+        raise BuildError("SDK is incomplete. Press 'Update SDK' and try again.")
     args = " ".join(f'"{a}"' for a in ("-m", "SCons", "-Q", "--warn=target-not-built",
                                        "-C", scripts, f"UFBT_APP_DIR={app_dir}", *targets))
     cmdline = f'cmd /d /s /c "call "{fbtenv}" env & python {args}"'
-    log("$ ufbt " + " ".join(targets))
-    p = subprocess.Popen(cmdline, cwd=app_dir, env=env, stdout=subprocess.PIPE,
-                         stderr=subprocess.STDOUT, stdin=subprocess.DEVNULL, text=True,
-                         encoding="utf-8", errors="replace", creationflags=NO_WINDOW)
-    for line in p.stdout:
-        log(ANSI.sub("", line.rstrip()))
-    return p.wait()
+    job.log("$ ufbt " + " ".join(targets))
+    code, _ = _stream(job, cmdline, on_line=on_line, cwd=app_dir, env=env)
+    return code
 
 
 def have_git():
     return shutil.which("git") is not None
 
 
-def download_zip(owner, repo, ref, dest, log):
+def download_zip(job, owner, repo, ref, dest):
     """Fallback when git isn't installed: GitHub source zip (no submodules)."""
     url = f"https://codeload.github.com/{owner}/{repo}/zip/{ref or 'HEAD'}"
-    log(f"$ download {url}")
+    job.log(f"$ download {url}")
     tmp = dest.parent / (dest.name + ".zip")
     try:
         with urllib.request.urlopen(url, timeout=60) as r, open(tmp, "wb") as f:
             shutil.copyfileobj(r, f)
     except Exception as e:  # noqa: BLE001
         raise BuildError(f"Couldn't download the repo ({e}). Is the link right and the repo public?")
+    unzip = dest.parent / (dest.name + ".unzip")
     with zipfile.ZipFile(tmp) as z:
-        z.extractall(dest.parent / (dest.name + ".unzip"))
+        z.extractall(unzip)
     tmp.unlink()
-    inner = next((dest.parent / (dest.name + ".unzip")).iterdir())
-    inner.rename(dest)
-    rmtree(dest.parent / (dest.name + ".unzip"))
+    next(unzip.iterdir()).rename(dest)
+    rmtree(unzip)
+
+
+def send_to_flipper(job, app_dir, fw):
+    env = ufbt_env(fw)
+    job.log("== Sending to the Flipper over USB")
+    code = run_ufbt(job, app_dir, env, "launch")
+    if code != 0:
+        raise BuildError("Couldn't send. Is the Flipper plugged in, unlocked, and qFlipper closed?")
 
 
 # ---------------------------------------------------------------- main job
 
-def build(url, fw="official", send=False, log=print):
-    """Clone, build every app found, copy .faps to output/. Returns list of results."""
+def build(url, fw="official", send=False, job=None):
+    """Clone, build every app found, copy .faps to output/. Returns (results, out_dir)."""
+    job = job or Job()
+    log = job.log
     owner, repo, parts = parse_github_url(url)
     remote = f"https://github.com/{owner}/{repo}.git"
     env = ufbt_env(fw)
 
+    job.stage("fetch", f"{owner}/{repo}")
     log(f"== Repo: {owner}/{repo}   Firmware: {FIRMWARES[fw][0]}")
     use_git = have_git()
     if use_git:
-        ref, subdir, is_sha = resolve_ref(remote, parts, env, log)
+        ref, subdir, is_sha = resolve_ref(job, remote, parts, env)
     else:  # no git: assume a branch name without slashes
         ref, subdir, is_sha = (parts[0] if parts else None), "/".join(parts[1:]), False
 
@@ -261,64 +354,89 @@ def build(url, fw="official", send=False, log=print):
     git = ["git", "-c", "core.longpaths=true", "-c", "advice.detachedHead=false"]
     if not use_git:
         log("(git isn't installed, downloading a zip instead; submodules won't be included)")
-        download_zip(owner, repo, ref, src, log)
+        download_zip(job, owner, repo, ref, src)
     elif is_sha:
-        run(git + ["clone", "--recurse-submodules", remote, src], env=env, log=log)
-        run(git + ["checkout", ref], cwd=src, env=env, log=log)
-        run(git + ["submodule", "update", "--init", "--recursive"], cwd=src, env=env, log=log)
+        run(job, git + ["clone", "--recurse-submodules", remote, src], env=env)
+        run(job, git + ["checkout", ref], cwd=src, env=env)
+        run(job, git + ["submodule", "update", "--init", "--recursive"], cwd=src, env=env)
     else:
         cmd = git + ["clone", "--depth", "1", "--recurse-submodules", "--shallow-submodules"]
         if ref:
             cmd += ["--branch", ref]
-        run(cmd + [remote, src], env=env, log=log)
+        run(job, cmd + [remote, src], env=env)
 
+    job.stage("scan")
     base = src / subdir if subdir else src
     if base.is_file():
         base = base.parent
     if not base.exists():
         raise BuildError(f"Folder '{subdir}' isn't in that repo.")
-
     apps, skipped = find_apps(base)
     if not apps:
         msg = "No Flipper app (application.fam) found in that link."
         if skipped:
             msg += " Found only firmware-internal apps, which can't be built as .fap."
         raise BuildError(msg)
-    if len(apps) > 25:
+    if len(apps) > MAX_APPS:
         raise BuildError(
             f"That link contains {len(apps)} apps (probably a whole firmware or app collection). "
             "Open the folder of the app you want on GitHub and paste that link instead.")
     log(f"== Found {len(apps)} app(s): " + ", ".join(a["name"] for a in apps))
 
-    env = ensure_sdk(fw, log)
+    job.stage("sdk", FIRMWARES[fw][1])
+    env = ensure_sdk(job, fw)
     out = OUT_DIR / f"{repo}__{fw}"
     rmtree(out)
     out.mkdir(parents=True)
 
+    job.stage("build", f"{len(apps)} app(s)")
+    total_src = sum(count_sources(a["dir"]) for a in apps)
+    compiled = [0]
+
+    def on_line(line):
+        if re.match(r"^\s*(CC|CXX)\s", line):
+            compiled[0] += 1
+            job.progress(min(compiled[0] / total_src, 0.98))
+
     results = []
     for app in apps:
-        log(f"\n== Building {app['name']} ({app['dir'].relative_to(src) if app['dir'] != src else '/'})")
+        job.check()
+        rel = app["dir"].relative_to(src).as_posix() if app["dir"] != src else "/"
+        log(f"\n== Building {app['name']} ({rel})")
         rmtree(app["dir"] / "dist")
-        code = run_ufbt(app["dir"], env, log)
+        code = run_ufbt(job, app["dir"], env, on_line=on_line)
         faps = sorted((app["dir"] / "dist").glob("*.fap"))
+        res = {
+            "name": app["name"], "appid": app["appid"], "category": app["category"],
+            "version": app["version"], "author": app["author"], "description": app["description"],
+            "icon": icon_data_uri(app), "dir": str(app["dir"]), "fw": fw, "ok": False, "files": [],
+        }
         if code != 0 or not faps:
             log(f"!! {app['name']} failed to build.")
-            results.append({"app": app, "ok": False, "faps": []})
+            results.append(res)
+            job.result(res)
             continue
-        copied = []
         for f in faps:
             dest = out / f.name
             shutil.copy2(f, dest)
-            copied.append(dest)
-        log(f"OK {app['name']}: " + ", ".join(f.name for f in copied)
+            res["files"].append({"name": f.name, "path": str(dest), "size": dest.stat().st_size})
+        res["ok"] = True
+        log(f"OK {app['name']}: " + ", ".join(f["name"] for f in res["files"])
             + f"   (on the SD card it goes in apps/{app['category']}/)")
         if send:
-            log(f"== Sending {app['name']} to the Flipper over USB")
-            code = run_ufbt(app["dir"], env, log, "launch")
-            if code != 0:
-                log("!! Couldn't send. Is the Flipper plugged in, unlocked, and qFlipper closed?")
-        results.append({"app": app, "ok": True, "faps": copied})
+            job.stage("send", app["name"])
+            try:
+                send_to_flipper(job, app["dir"], fw)
+                res["sent"] = True
+            except Cancelled:
+                raise
+            except BuildError as e:
+                log("!! " + str(e))
+                res["sent"] = False
+        results.append(res)
+        job.result(res)
 
+    job.progress(1.0)
     ok = sum(r["ok"] for r in results)
     log(f"\n== Done: {ok}/{len(results)} built. Files are in {out}")
     return results, out
@@ -329,7 +447,7 @@ def build(url, fw="official", send=False, log=print):
 def load_settings():
     try:
         return json.loads(SETTINGS.read_text())
-    except Exception:
+    except Exception:  # noqa: BLE001
         return {}
 
 
@@ -338,226 +456,8 @@ def save_settings(**kw):
     s.update(kw)
     try:
         SETTINGS.write_text(json.dumps(s, indent=2))
-    except Exception:
+    except Exception:  # noqa: BLE001
         pass
-
-
-# ---------------------------------------------------------------- GUI
-
-def gui():
-    import tkinter as tk
-    from tkinter import ttk
-
-    BG, PANEL, FG, MUTED, ACCENT, OK, ERR = "#16181d", "#1f2229", "#e8e8ea", "#9aa0a6", "#ff8200", "#4cc38a", "#ff6b6b"
-
-    if os.name == "nt":  # own taskbar identity, so Windows shows our icon, not Python's
-        try:
-            import ctypes
-            ctypes.windll.shell32.SetCurrentProcessExplicitAppUserModelID(APP_ID)
-            ctypes.windll.shcore.SetProcessDpiAwareness(1)
-        except Exception:  # noqa: BLE001
-            pass
-    root = tk.Tk()
-    root.title(APP_NAME)
-    if ICON.exists():
-        try:
-            root.iconbitmap(default=str(ICON))
-        except tk.TclError:
-            pass
-    root.geometry("860x600")
-    root.minsize(640, 420)
-    root.configure(bg=BG)
-
-    style = ttk.Style(root)
-    style.theme_use("clam")
-    style.configure(".", background=BG, foreground=FG, fieldbackground=PANEL, font=("Segoe UI", 10))
-    style.configure("TLabel", background=BG, foreground=FG)
-    style.configure("Muted.TLabel", foreground=MUTED)
-    style.configure("Title.TLabel", font=("Segoe UI Semibold", 15))
-    style.configure("TCheckbutton", background=BG, foreground=FG)
-    style.map("TCheckbutton", background=[("active", BG)])
-    style.configure("TEntry", padding=6, foreground=FG, insertcolor=FG)
-    style.configure("TCombobox", padding=4, foreground=FG, arrowcolor=FG)
-    style.map("TCombobox", fieldbackground=[("readonly", PANEL)], foreground=[("readonly", FG)])
-    root.option_add("*TCombobox*Listbox.background", PANEL)
-    root.option_add("*TCombobox*Listbox.foreground", FG)
-    style.configure("Accent.TButton", background=ACCENT, foreground="#111", font=("Segoe UI Semibold", 10), padding=(16, 6), borderwidth=0)
-    style.map("Accent.TButton", background=[("disabled", "#5a4a3a"), ("active", "#ff9a33")])
-    style.configure("TButton", background=PANEL, foreground=FG, padding=(12, 6), borderwidth=0)
-    style.map("TButton", background=[("active", "#2b2f38"), ("disabled", PANEL)], foreground=[("disabled", MUTED)])
-
-    settings = load_settings()
-    frm = ttk.Frame(root, padding=16)
-    frm.pack(fill="both", expand=True)
-    frm.configure(style="TFrame")
-    style.configure("TFrame", background=BG)
-
-    ttk.Label(frm, text="Flipper Builder", style="Title.TLabel").grid(row=0, column=0, columnspan=4, sticky="w")
-    ttk.Label(frm, text="Paste a GitHub link to a Flipper Zero app (repo, branch or folder) and press Build.",
-              style="Muted.TLabel").grid(row=1, column=0, columnspan=4, sticky="w", pady=(0, 10))
-
-    url_var = tk.StringVar()
-    entry = ttk.Entry(frm, textvariable=url_var)
-    entry.grid(row=2, column=0, columnspan=3, sticky="ew", padx=(0, 8))
-    build_btn = ttk.Button(frm, text="Build", style="Accent.TButton")
-    build_btn.grid(row=2, column=3, sticky="ew")
-
-    opts = ttk.Frame(frm)
-    opts.grid(row=3, column=0, columnspan=4, sticky="w", pady=10)
-    ttk.Label(opts, text="My Flipper runs:").pack(side="left")
-    labels = {v[0]: k for k, v in FIRMWARES.items()}
-    fw_var = tk.StringVar(value=FIRMWARES.get(settings.get("fw", "official"), FIRMWARES["official"])[0])
-    ttk.Combobox(opts, textvariable=fw_var, values=list(labels), state="readonly", width=28).pack(side="left", padx=(6, 18))
-    send_var = tk.BooleanVar(value=settings.get("send", False))
-    ttk.Checkbutton(opts, text="Send to Flipper over USB after building", variable=send_var).pack(side="left")
-
-    log_frame = tk.Frame(frm, bg=PANEL)
-    log_frame.grid(row=4, column=0, columnspan=4, sticky="nsew")
-    style.configure("Dark.Vertical.TScrollbar", background="#2b2f38", troughcolor=PANEL,
-                    bordercolor=PANEL, arrowcolor=MUTED, lightcolor="#2b2f38", darkcolor="#2b2f38")
-    style.map("Dark.Vertical.TScrollbar", background=[("active", "#3a3f4a")])
-    scroll = ttk.Scrollbar(log_frame, orient="vertical", style="Dark.Vertical.TScrollbar")
-    scroll.pack(side="right", fill="y")
-    log_box = tk.Text(log_frame, bg=PANEL, fg=FG, insertbackground=FG, relief="flat", yscrollcommand=scroll.set,
-                      font=("Cascadia Mono", 9), wrap="word", borderwidth=0, padx=10, pady=8,
-                      highlightthickness=0)
-    log_box.pack(side="left", fill="both", expand=True)
-    scroll.configure(command=log_box.yview)
-    for tag, color in (("head", ACCENT), ("ok", OK), ("err", ERR), ("cmd", MUTED)):
-        log_box.tag_configure(tag, foreground=color)
-    log_box.insert("end", "The build log shows up here.\n\n"
-                          "Tip: copy a GitHub link before opening the app and it's pasted in for you.\n"
-                          "The .fap opens in a folder when it's done.", "cmd")
-    log_box.configure(state="disabled")
-
-    bottom = ttk.Frame(frm)
-    bottom.grid(row=5, column=0, columnspan=4, sticky="ew", pady=(10, 0))
-    status = ttk.Label(bottom, text="Ready.", style="Muted.TLabel")
-    status.pack(side="left")
-    open_btn = ttk.Button(bottom, text="Open output folder")
-    open_btn.pack(side="right")
-    sdk_btn = ttk.Button(bottom, text="Update SDK now")
-    sdk_btn.pack(side="right", padx=8)
-
-    frm.columnconfigure(0, weight=1)
-    frm.rowconfigure(4, weight=1)
-
-    q = queue.Queue()
-    state = {"out": OUT_DIR, "busy": False}
-
-    def log(line):
-        q.put(("log", line))
-
-    def pump():
-        try:
-            while True:
-                kind, val = q.get_nowait()
-                if kind == "log":
-                    tag = None
-                    if val.startswith("=="):
-                        tag = "head"
-                    elif val.startswith("OK "):
-                        tag = "ok"
-                    elif val.startswith("!!") or "error:" in val.lower():
-                        tag = "err"
-                    elif val.startswith("$ "):
-                        tag = "cmd"
-                    log_box.configure(state="normal")
-                    log_box.insert("end", val + "\n", tag)
-                    log_box.see("end")
-                    log_box.configure(state="disabled")
-                elif kind == "done":
-                    state["busy"] = False
-                    build_btn.configure(state="normal")
-                    sdk_btn.configure(state="normal")
-                    status.configure(text=val)
-        except queue.Empty:
-            pass
-        root.after(80, pump)
-
-    def start(job, label):
-        if state["busy"]:
-            return
-        state["busy"] = True
-        build_btn.configure(state="disabled")
-        sdk_btn.configure(state="disabled")
-        status.configure(text=label)
-        log_box.configure(state="normal")
-        log_box.delete("1.0", "end")
-        log_box.configure(state="disabled")
-        threading.Thread(target=job, daemon=True).start()
-
-    def do_build(*_):
-        url = url_var.get().strip()
-        if not url:
-            status.configure(text="Paste a GitHub link first.")
-            return
-        fw = labels[fw_var.get()]
-        send = send_var.get()
-        save_settings(fw=fw, send=send)
-
-        def job():
-            try:
-                results, out = build(url, fw, send, log)
-                state["out"] = out
-                ok = sum(r["ok"] for r in results)
-                msg = f"Built {ok} of {len(results)} app(s)."
-                if ok:
-                    os.startfile(out)
-            except BuildError as e:
-                log("!! " + str(e))
-                msg = "Failed: " + str(e)
-            except Exception as e:  # noqa: BLE001
-                log(f"!! Unexpected error: {e!r}")
-                msg = "Failed (see log)."
-            q.put(("done", msg))
-        start(job, "Building... (first build downloads the toolchain, a few minutes)")
-
-    def do_sdk():
-        fw = labels[fw_var.get()]
-        def job():
-            try:
-                ensure_sdk(fw, log, force=True)
-                msg = "SDK updated."
-            except Exception as e:  # noqa: BLE001
-                log("!! " + str(e))
-                msg = "SDK update failed."
-            q.put(("done", msg))
-        start(job, "Updating SDK...")
-
-    def do_open():
-        target = state["out"] if Path(state["out"]).exists() else OUT_DIR
-        Path(target).mkdir(parents=True, exist_ok=True)
-        os.startfile(target)
-
-    build_btn.configure(command=do_build)
-    sdk_btn.configure(command=do_sdk)
-    open_btn.configure(command=do_open)
-    entry.bind("<Return>", do_build)
-
-    try:  # prefill from clipboard if it holds a GitHub link
-        clip = root.clipboard_get().strip()
-        if "github.com/" in clip and "\n" not in clip:
-            url_var.set(clip)
-    except tk.TclError:
-        pass
-    entry.focus_set()
-    entry.icursor("end")
-
-    def dark_title_bar():
-        try:
-            import ctypes
-            root.update_idletasks()
-            hwnd = ctypes.windll.user32.GetParent(root.winfo_id())
-            on = ctypes.c_int(1)
-            ctypes.windll.dwmapi.DwmSetWindowAttribute(hwnd, 20, ctypes.byref(on), ctypes.sizeof(on))
-            root.withdraw(); root.deiconify()  # repaint the frame with the new colour
-        except Exception:  # noqa: BLE001
-            pass
-    if os.name == "nt":
-        dark_title_bar()
-    pump()
-    root.mainloop()
 
 
 def cli(argv):
@@ -583,4 +483,5 @@ if __name__ == "__main__":
         sys.stderr = open(os.devnull, "w")
     if len(sys.argv) > 1:
         sys.exit(cli(sys.argv[1:]))
-    gui()
+    import gui
+    gui.main()

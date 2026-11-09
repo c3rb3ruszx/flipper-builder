@@ -1,4 +1,4 @@
-﻿# Installs (or updates) Flipper Builder from dist\FlipperBuilder into %LOCALAPPDATA%\Programs\FlipperBuilder (or -Target <folder>).
+# Installs (or updates) Flipper Builder from dist\FlipperBuilder into %LOCALAPPDATA%\Programs\FlipperBuilder (or -Target <folder>).
 # App data (SDKs in .cache, output, settings.json) lives next to the exe and survives updates.
 param([string]$Target = (Join-Path $env:LOCALAPPDATA 'Programs\FlipperBuilder'))
 $ErrorActionPreference = 'Stop'
@@ -44,7 +44,7 @@ pause
 $key = 'HKCU:\Software\Microsoft\Windows\CurrentVersion\Uninstall\FlipperBuilder'
 New-Item -Force $key | Out-Null
 $size = [int]((Get-ChildItem $Target -Recurse -File | Measure-Object Length -Sum).Sum / 1KB)
-@{ DisplayName = 'Flipper Builder'; DisplayVersion = '1.0.0'; Publisher = 'c3rb3ruszx'
+@{ DisplayName = 'Flipper Builder'; DisplayVersion = '1.1.0'; Publisher = 'c3rb3ruszx'
    DisplayIcon = "$exe,0"; InstallLocation = $Target; UninstallString = "`"$Target\uninstall.cmd`""
 }.GetEnumerator() | ForEach-Object { Set-ItemProperty $key $_.Key $_.Value }
 Set-ItemProperty $key EstimatedSize $size -Type DWord

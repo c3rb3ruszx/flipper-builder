@@ -1,0 +1,116 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Flipper Builder</title>
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<link rel="stylesheet" href="app.css">
+</head>
+<body class="booting">
+
+<header class="top">
+  <div class="brand">
+    <img class="brand-icon" src="icon.png" alt="">
+    <h1>Flipper Builder</h1>
+    <span class="ver" id="ver">v1</span>
+  </div>
+  <div class="top-actions">
+    <button class="pill" id="sdkPill" title="SDK for the selected firmware. Click to update it now.">
+      <i data-icon="refresh"></i><span id="sdkPillText">SDK</span>
+    </button>
+    <button class="pill ghost" id="repoBtn" title="Open the project on GitHub"><i data-icon="github"></i><span>GitHub</span></button>
+  </div>
+</header>
+
+<main class="grid">
+  <!-- left: the device -->
+  <section class="device" aria-label="Flipper screen">
+    <div class="device-top">
+      <span class="led" id="led" title="Status LED"></span>
+      <span class="device-label">FLIPPER&nbsp;BUILDER</span>
+      <span class="device-fw" id="deviceFw">OFW</span>
+    </div>
+    <div class="bezel">
+      <div class="lcd" id="lcd" title="Poke the dolphin">
+        <canvas id="screen" width="128" height="64"></canvas>
+      </div>
+    </div>
+    <div class="controls-row">
+      <div class="dpad" id="dpad">
+        <button class="dp up" data-dp="up" title="Show / hide the log"><i data-icon="tri-up"></i></button>
+        <button class="dp right" data-dp="right" title="Next firmware"><i data-icon="tri-right"></i></button>
+        <button class="dp down" data-dp="down" title="Show / hide the log"><i data-icon="tri-down"></i></button>
+        <button class="dp left" data-dp="left" title="Previous firmware"><i data-icon="tri-left"></i></button>
+        <button class="dp ok" data-dp="ok" title="Build (Enter)"></button>
+      </div>
+      <button class="back" data-dp="back" title="Cancel (Esc)"><i data-icon="back"></i></button>
+    </div>
+    <div class="legend">
+      <span><b>&#9664; &#9654;</b> firmware</span><span><b>OK</b> build</span><span><b>&#8617;</b> cancel</span>
+    </div>
+  </section>
+
+  <!-- right: controls -->
+  <section class="panel">
+    <div class="field">
+      <label class="lbl" for="url">GitHub link</label>
+      <div class="input-wrap" id="inputWrap">
+        <i data-icon="github" class="in-icon"></i>
+        <input id="url" type="text" spellcheck="false" autocomplete="off"
+               placeholder="github.com/owner/repo  or  .../tree/branch/app_folder">
+        <button class="mini" id="pasteBtn" title="Paste from clipboard"><i data-icon="paste"></i>Paste</button>
+      </div>
+      <div class="link-preview" id="preview"></div>
+    </div>
+
+    <div class="field">
+      <span class="lbl">My Flipper runs</span>
+      <div class="fw-row" id="fwRow"><span class="fw-indicator" id="fwIndicator"></span></div>
+    </div>
+
+    <label class="toggle" for="send">
+      <input type="checkbox" id="send">
+      <span class="switch"><span class="knob"></span></span>
+      <span class="toggle-text">Send to Flipper over USB after building<small>close qFlipper first</small></span>
+    </label>
+
+    <button class="build" id="buildBtn"><span class="build-label" id="buildLabel">Build .fap</span></button>
+
+    <div class="stages" id="stages">
+      <div class="stage" data-stage="fetch"><span class="dot"></span>Fetch</div>
+      <div class="stage" data-stage="scan"><span class="dot"></span>Scan</div>
+      <div class="stage" data-stage="sdk"><span class="dot"></span>SDK</div>
+      <div class="stage" data-stage="build"><span class="dot"></span>Build</div>
+      <div class="stage" data-stage="done"><span class="dot"></span>Done</div>
+    </div>
+    <div class="bar" id="bar"></div>
+    <div class="callout" id="callout" hidden></div>
+
+    <div class="shelf" id="shelf">
+      <div class="shelf-head">
+        <span class="lbl" id="shelfTitle">Recent</span>
+        <span class="shelf-actions" id="shelfActions"></span>
+      </div>
+      <div class="shelf-body" id="shelfBody"></div>
+    </div>
+  </section>
+</main>
+
+<footer class="log" id="log">
+  <button class="log-head" id="logHead">
+    <i data-icon="terminal"></i><span class="lbl">Log</span>
+    <span class="log-last" id="logLast">Ready.</span>
+    <i data-icon="tri-up" class="chev"></i>
+  </button>
+  <div class="log-body" id="logBody"></div>
+</footer>
+
+<div class="drop" id="drop"><div>Drop the link</div></div>
+<div class="toast" id="toast"></div>
+<canvas class="confetti" id="confetti"></canvas>
+
+<script src="vendor/dolphin.js"></script>
+<script src="icons.js"></script>
+<script src="app.js"></script>
+</body>
+</html>
