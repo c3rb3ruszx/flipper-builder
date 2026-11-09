@@ -197,7 +197,8 @@ const LCD = {
 let api = null;
 function mockApi() {
   const fws = [["official", "Official firmware (release)", "OFW", "1.5.1"], ["official-dev", "Official firmware (dev)", "OFW DEV", null],
-    ["momentum", "Momentum", "MOMENTUM", "mntm-012"], ["momentum-dev", "Momentum (dev)", "MNTM DEV", "d3f89dfe"], ["unleashed", "Unleashed", "UNLEASHED", "unlshd-094"]];
+    ["momentum", "Momentum", "MOMENTUM", "mntm-012"], ["momentum-dev", "Momentum (dev)", "MNTM DEV", "d3f89dfe"], ["unleashed", "Unleashed", "UNLEASHED", "unlshd-094"],
+    ["unleashed-dev", "Unleashed (dev)", "UNLSHD DEV", null]];
   let timers = [];
   const emit = (batch) => window.fb.onEvents(batch);
   return {
@@ -291,7 +292,10 @@ function setFw(id, user) {
   S.fw = id;
   const row = $("#fwRow"), btn = $(`.fw[data-fw="${id}"]`, row), ind = $("#fwIndicator");
   $$(".fw", row).forEach((b) => b.classList.toggle("on", b === btn));
-  if (btn) { ind.style.width = btn.offsetWidth + "px"; ind.style.transform = `translateX(${btn.offsetLeft - 4}px)`; }
+  if (btn) {
+    ind.style.width = btn.offsetWidth + "px"; ind.style.height = btn.offsetHeight + "px";
+    ind.style.transform = `translate(${btn.offsetLeft}px, ${btn.offsetTop}px)`;
+  }
   const f = fwObj();
   $("#deviceFw").textContent = f.short;
   $("#sdkPillText").textContent = `SDK ${f.sdk || "not downloaded"}`;

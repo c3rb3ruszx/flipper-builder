@@ -15,7 +15,7 @@ and cries when the build breaks.
 - **Any GitHub link**: a repo, a branch, a subfolder (`/tree/dev/some_app`), a file (`/blob/...`)
   or a commit. Branch names with slashes are resolved correctly. Drag and drop a link onto the
   window, or copy one before opening the app and it's pasted in for you.
-- **Every big firmware**: Official (release / dev), Momentum (release / dev), Unleashed.
+- **Every big firmware**: Official, Momentum and Unleashed, each as release or dev build.
   Pick the one your Flipper runs, or the app will show "API mismatch".
 - **Live progress**: fetch, scan, SDK, build stages, a compile progress bar, and the full log in a
   slide-up drawer.
@@ -47,7 +47,7 @@ python -m venv .venv
 .venv\Scripts\python flipper_builder.py <github-url> --fw momentum-dev [--send]  # CLI
 ```
 
-`--fw` is one of `official`, `official-dev`, `momentum`, `momentum-dev`, `unleashed`.
+`--fw` is one of `official`, `official-dev`, `momentum`, `momentum-dev`, `unleashed`, `unleashed-dev`.
 
 The UI is plain HTML/CSS/JS in `ui/`. Open `ui/index.html` through any local web server and it runs
 against a built-in mock, which is handy for working on the design.

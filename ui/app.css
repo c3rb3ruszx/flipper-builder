@@ -172,7 +172,7 @@ body.booting .lcd { filter: brightness(.12) saturate(.4); box-shadow: 0 0 0 1px 
 .legend b { color: var(--muted); font-weight: 400; }
 
 /* ---------- panel ---------- */
-.panel { display: flex; flex-direction: column; gap: 18px; min-height: 0; animation: rise .7s .08s var(--ease) both; }
+.panel { display: flex; flex-direction: column; gap: 14px; min-height: 0; animation: rise .7s .08s var(--ease) both; }
 .lbl { font: 500 12px var(--px); text-transform: uppercase; letter-spacing: 1.5px; color: var(--muted); }
 .field { display: flex; flex-direction: column; gap: 8px; }
 
@@ -210,17 +210,19 @@ body.booting .lcd { filter: brightness(.12) saturate(.4); box-shadow: 0 0 0 1px 
 
 /* firmware segmented control with sliding indicator */
 .fw-row {
-  position: relative; display: grid; grid-template-columns: repeat(5, 1fr); gap: 4px; padding: 4px;
+  /* 3 firmwares x (release on top, dev build below): FIRMWARES order fills columns */
+  position: relative; display: grid; grid-template-columns: repeat(3, 1fr); grid-template-rows: repeat(2, auto);
+  grid-auto-flow: column; gap: 4px; padding: 4px;
   background: var(--panel); border: 1px solid var(--line-2); border-radius: 12px;
 }
 .fw-indicator {
-  position: absolute; top: 4px; bottom: 4px; left: 4px; border-radius: 8px; background: var(--orange);
+  position: absolute; top: 0; left: 0; border-radius: 8px; background: var(--orange);
   box-shadow: 0 0 18px rgba(255,130,0,.35), inset 0 -3px 0 rgba(0,0,0,.18);
-  transition: transform .38s var(--spring), width .38s var(--spring);
+  transition: transform .38s var(--spring), width .38s var(--spring), height .38s var(--spring);
 }
 .fw {
-  position: relative; z-index: 1; border: 0; background: transparent; border-radius: 8px; padding: 9px 4px 8px;
-  display: flex; flex-direction: column; align-items: center; gap: 3px; color: var(--text);
+  position: relative; z-index: 1; border: 0; background: transparent; border-radius: 8px; padding: 7px 4px 6px;
+  display: flex; flex-direction: row; justify-content: center; align-items: baseline; gap: 8px; color: var(--text);
   transition: color .25s;
 }
 .fw:hover:not(.on) { background: rgba(255,255,255,.04); }

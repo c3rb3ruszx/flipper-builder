@@ -1,7 +1,7 @@
 ﻿"""Flipper Builder: paste a GitHub link to a Flipper Zero app, get a .fap.
 
 GUI:  pythonw flipper_builder.py            (window: gui.py, UI: ui/)
-CLI:  python flipper_builder.py <github-url> [--fw official|official-dev|momentum|momentum-dev|unleashed] [--send]
+CLI:  python flipper_builder.py <github-url> [--fw official|official-dev|momentum|momentum-dev|unleashed|unleashed-dev] [--send]
 """
 
 import base64
@@ -20,7 +20,7 @@ import zipfile
 from pathlib import Path
 
 APP_NAME = "Flipper Builder"
-APP_VERSION = "1.1.0"
+APP_VERSION = "1.2.0"
 APP_ID = "c3rb3ruszx.FlipperBuilder"
 REPO_URL = "https://github.com/c3rb3ruszx/flipper-builder"
 FROZEN = getattr(sys, "frozen", False)
@@ -39,13 +39,15 @@ SDK_MAX_AGE = 24 * 3600  # refresh the SDK at most once a day
 MAX_APPS = 25
 
 MOMENTUM_INDEX = "--index-url=https://up.momentum-fw.dev/firmware/directory.json"
-# id: (label, short label, ufbt update args)
+UNLEASHED_INDEX = "--index-url=https://up.unleashedflip.com/directory.json"
+# id: (label, short label, ufbt update args). Order matters to the UI: release, then its dev build.
 FIRMWARES = {
     "official": ("Official firmware (release)", "OFW", ["--channel=release"]),
     "official-dev": ("Official firmware (dev)", "OFW DEV", ["--channel=dev"]),
     "momentum": ("Momentum", "MOMENTUM", [MOMENTUM_INDEX, "--channel=release"]),
     "momentum-dev": ("Momentum (dev)", "MNTM DEV", [MOMENTUM_INDEX, "--channel=dev"]),
-    "unleashed": ("Unleashed", "UNLEASHED", ["--index-url=https://up.unleashedflip.com/directory.json", "--channel=release"]),
+    "unleashed": ("Unleashed", "UNLEASHED", [UNLEASHED_INDEX, "--channel=release"]),
+    "unleashed-dev": ("Unleashed (dev)", "UNLSHD DEV", [UNLEASHED_INDEX, "--channel=dev"]),
 }
 
 ANSI = re.compile(r"\x1b\[[0-9;?]*[A-Za-z]")
