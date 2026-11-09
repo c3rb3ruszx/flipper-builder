@@ -19,13 +19,30 @@ and cries when the build breaks.
   Pick the one your Flipper runs, or the app will show "API mismatch".
 - **Live progress**: fetch, scan, SDK, build stages, a compile progress bar, and the full log in a
   slide-up drawer.
+- **Knows your Flipper**: plug it in over USB and the app reads its firmware (Official, Momentum or
+  Unleashed, release or dev) and API version, picks the matching SDK, and warns you before building
+  something that won't run on it.
+- **Install straight to the Flipper**: after building, *Install to SD* copies the `.fap` into
+  `apps/<Category>/` over USB, or *Install & open* also launches it. Close qFlipper first.
+- **Library + Rebuild all**: every app you build is remembered, with badges for what runs on your
+  Flipper and what's outdated. After a firmware update, one click rebuilds them all for the new
+  firmware (and installs them, if you like).
+- **Discover**: search the 500+ apps in Flipper's official Apps Catalog and build any of them in one
+  click, from the exact version Flipper reviewed.
+- **Pick the apps you want**: repos with several apps open a checklist with each app's icon.
+- **Errors in plain English**: a failed build tells you why (a function your firmware doesn't have,
+  a missing library, an outdated app) and offers one-click "try another firmware" buttons.
+- **Local folders + watch mode**: build an app from a folder on your PC, and let it rebuild (and
+  reinstall) automatically every time you save. Handy when you write your own apps.
 - **Results you can use**: each built app shows its own icon, size, and the SD card folder it belongs
-  in (`apps/<Category>/`), with buttons to open the folder, copy the SD path, or send it to the Flipper.
-- **Send to Flipper over USB** after building (`ufbt launch`; close qFlipper first).
-- **Recent builds** list for one-click rebuilds. Multi-app repos build every app (up to 25).
+  in, with buttons to open the folder, copy the SD path, install or open it on the Flipper.
+- **Recent builds**, and a header notice when a new version of Flipper Builder is out.
 - **Play with it like a Flipper**: the d-pad works. Left/right switches firmware, OK builds, Back
-  cancels, up/down opens the log. Keyboard: arrows, Enter, Esc, Ctrl+L. Poke the dolphin.
+  cancels, up/down opens the log. Keyboard: arrows, Enter, Esc, Ctrl+L (link), Ctrl+F (search).
+  Poke the dolphin.
 - SDK refreshes itself once a day; **SDK** button in the header forces it (right after a firmware update).
+
+![Flipper plugged in: firmware detected and matched](assets/screenshot-device.png)
 
 ![Build finished](assets/screenshot-done.png)
 
@@ -42,9 +59,9 @@ Needs Windows and Python 3.10+. Double-click `Flipper Builder.bat`, or:
 
 ```
 python -m venv .venv
-.venv\Scripts\pip install ufbt pywebview
-.venv\Scripts\python flipper_builder.py                                         # GUI
-.venv\Scripts\python flipper_builder.py <github-url> --fw momentum-dev [--send]  # CLI
+.venv\Scripts\pip install ufbt pywebview pyserial
+.venv\Scripts\python flipper_builder.py                                                 # GUI
+.venv\Scripts\python flipper_builder.py <github-url-or-folder> --fw momentum-dev [--send]  # CLI
 ```
 
 `--fw` is one of `official`, `official-dev`, `momentum`, `momentum-dev`, `unleashed`, `unleashed-dev`.
@@ -68,6 +85,10 @@ change it) and registers a per-user uninstaller. No admin rights needed.
 The window is a WebView2 page (pywebview) talking to the Python build engine. The exe bundles
 ufbt's SDK downloader; compiling runs inside Flipper's own toolchain (`fbtenv.cmd` + SCons, exactly
 what the `ufbt` command does), which ships its own Python, so the exe doesn't need Python installed.
+USB talks to the Flipper with the SDK's own storage client (`scripts/flipper/storage.py`, the code
+fbt uses); a copy ships as `flipper_storage.py` for before any SDK is downloaded. Discover indexes
+[flipper-application-catalog](https://github.com/flipperdevices/flipper-application-catalog) and
+caches it for a week.
 
 ## Credits
 
@@ -77,7 +98,8 @@ what the `ufbt` command does), which ships its own Python, so the exe doesn't ne
 - **Fonts**: [Silkscreen](https://fonts.google.com/specimen/Silkscreen) and
   [Pixelify Sans](https://fonts.google.com/specimen/Pixelify+Sans), SIL Open Font License 1.1
   (license texts in `ui/vendor/fonts/`).
-- **ufbt** by Flipper Devices, GPL-3.0.
+- **ufbt** and the **storage client** (`flipper_storage.py`) by Flipper Devices, GPL-3.0.
+- **App catalog index**: Flipper's official Apps Catalog; each app belongs to its author.
 
 Flipper Builder is an unofficial community tool and is not affiliated with or endorsed by Flipper Devices Inc.
 "Flipper Zero" is a trademark of Flipper Devices Inc.

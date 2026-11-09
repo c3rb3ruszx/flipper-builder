@@ -2,21 +2,25 @@
 
 Python -> JS: batched events via window.fb.onEvents([...]).
 JS -> Python: the public methods of Api (pywebview's js_api bridge).
+Background threads: event pump, Flipper USB monitor, local-folder watcher, update check.
 """
 
 import ctypes
 import json
 import os
 import queue
+import re
 import subprocess
 import threading
 import time
+import urllib.request
 import webbrowser
 from pathlib import Path
 
 import flipper_builder as fb
 
 MAX_RECENT = 8
+AFTER_MODES = ("none", "install", "open")   # what happens after a build: nothing / copy to SD / copy + open
 
 
 # ---------------------------------------------------------------- clipboard (Win32)
@@ -75,6 +79,10 @@ def _github_link(text):
     return ""
 
 
+def _vtuple(v):
+    return tuple(int(x) for x in re.findall(r"\d+", v or "0")[:3])
+
+
 # ---------------------------------------------------------------- API exposed to JS
 
 class Api:
@@ -83,9 +91,15 @@ class Api:
         self._events = queue.Queue()
         self._job = None
         self._lock = threading.Lock()
+        self._select_answer = None
+        self._select_event = threading.Event()
+        self._device = {"connected": False}
+        self._device_refresh = threading.Event()
+        self._watch = {"path": None, "snap": None}
+        self._pending_changes = []
         threading.Thread(target=self._pump, daemon=True).start()
 
-    # -- plumbing
+    # ------------------------------------------------ plumbing
     def _emit(self, kind, **data):
         data["type"] = kind
         self._events.put(data)
@@ -104,8 +118,15 @@ class Api:
             except Exception:  # noqa: BLE001  (window closing)
                 pass
 
-    def _busy(self):
-        return self._job is not None
+    def _ask_select(self, apps):
+        """Called from the build thread: show the picker and wait for the answer."""
+        self._select_answer = None
+        self._select_event.clear()
+        self._emit("select", apps=apps)
+        while not self._select_event.wait(0.25):
+            if self._job and self._job.cancelled.is_set():
+                return []
+        return self._select_answer
 
     def _run_job(self, label, fn):
         job = fb.Job(
@@ -113,6 +134,7 @@ class Api:
             stage=lambda name, detail="": self._emit("stage", stage=name, detail=detail),
             progress=lambda v: self._emit("progress", value=v),
             result=lambda res: self._emit("result", result=res),
+            select=self._ask_select,
         )
         with self._lock:
             if self._job:
@@ -123,70 +145,148 @@ class Api:
             try:
                 payload = fn(job) or {}
                 self._emit("finished", ok=True, **payload)
-            except fb.Cancelled:
-                self._emit("log", line="!! Cancelled.")
-                self._emit("finished", ok=False, cancelled=True, error="Cancelled.")
+            except fb.Cancelled as e:
+                self._emit("log", line=f"!! {e}")
+                self._emit("finished", ok=False, cancelled=True, error=str(e))
             except fb.BuildError as e:
                 self._emit("log", line="!! " + str(e))
-                self._emit("finished", ok=False, error=str(e))
+                self._emit("finished", ok=False, error=str(e), hints=fb.hints(job.lines, label_fw[0]))
             except Exception as e:  # noqa: BLE001
                 self._emit("log", line=f"!! Unexpected error: {e!r}")
                 self._emit("finished", ok=False, error="Unexpected error (see log).")
             finally:
                 self._job = None
+                self._device_refresh.set()   # the port may have been busy; re-read the Flipper
+        label_fw = [label]
         threading.Thread(target=worker, daemon=True, name=label).start()
         return {"ok": True}
 
-    # -- called from JS
+    def _build_payload(self, results, out, fw, job, source=None, repo=None):
+        ok = sum(r["ok"] for r in results)
+        payload = {"built": ok, "total": len(results), "out": str(out), "sdk": fb.sdk_version(fw),
+                   "api": fb.sdk_api(fw), "fw": fw, "install_error": getattr(job, "install_error", None),
+                   "installed": any(r.get("installed") or r.get("sent") for r in results)}
+        failed = [r for r in results if not r["ok"]]
+        if failed:
+            payload["hints"] = failed[0].get("hints") or fb.hints(job.lines, fw)
+        if source:
+            recent = [r for r in fb.load_settings().get("recent", []) if r.get("url") != source]
+            recent.insert(0, {"url": source, "fw": fw, "repo": repo or source,
+                              "name": ", ".join(r["name"] for r in results)[:60] or repo or source,
+                              "ok": ok == len(results), "t": int(time.time())})
+            fb.save_settings(recent=recent[:MAX_RECENT])
+            payload["recent"] = recent[:MAX_RECENT]
+        return payload
+
+    # ------------------------------------------------ init / prefs
     def init(self):
         s = fb.load_settings()
+        after = s.get("after") or ("open" if s.get("send") else "none")
         return {
             "version": fb.APP_VERSION,
             "repo": fb.REPO_URL,
-            "firmwares": [{"id": k, "label": v[0], "short": v[1], "sdk": fb.sdk_version(k)}
+            "firmwares": [{"id": k, "label": v[0], "short": v[1], "sdk": fb.sdk_version(k), "api": fb.sdk_api(k)}
                           for k, v in fb.FIRMWARES.items()],
             "fw": s.get("fw", "official") if s.get("fw") in fb.FIRMWARES else "official",
-            "send": bool(s.get("send", False)),
+            "after": after if after in AFTER_MODES else "none",
+            "auto_fw": s.get("auto_fw", True),
             "recent": s.get("recent", []),
             "clipboard": _github_link(_clip_get()),
             "out_dir": str(fb.OUT_DIR),
+            "device": self._device,
+            "library_count": len(fb.load_library()),
         }
 
     def clipboard(self):
         return _github_link(_clip_get())
 
-    def set_prefs(self, fw, send):
+    def set_prefs(self, fw=None, after=None, auto_fw=None):
+        kw = {}
         if fw in fb.FIRMWARES:
-            fb.save_settings(fw=fw, send=bool(send))
+            kw["fw"] = fw
+        if after in AFTER_MODES:
+            kw["after"] = after
+        if auto_fw is not None:
+            kw["auto_fw"] = bool(auto_fw)
+        fb.save_settings(**kw)
         return True
 
-    def build(self, url, fw, send):
-        try:
-            owner, repo, _ = fb.parse_github_url(url)
-        except fb.BuildError as e:
-            return {"error": str(e)}
+    # ------------------------------------------------ building
+    def build(self, source, fw, after="none"):
+        source = (source or "").strip().strip('"')
+        local = fb.is_local(source)
+        if not local:
+            try:
+                owner, repo, _ = fb.parse_github_url(source)
+            except fb.BuildError as e:
+                return {"error": str(e) + " (A local folder path works too.)"}
+            repo_label = f"{owner}/{repo}"
+        else:
+            repo_label = Path(source).name
         if fw not in fb.FIRMWARES:
             return {"error": "Unknown firmware."}
-        fb.save_settings(fw=fw, send=bool(send))
+        fb.save_settings(fw=fw, after=after)
 
         def work(job):
-            results, out = fb.build(url, fw, bool(send), job)
-            ok = sum(r["ok"] for r in results)
-            recent = [r for r in fb.load_settings().get("recent", []) if r.get("url") != url]
-            recent.insert(0, {"url": url, "fw": fw, "name": ", ".join(r["name"] for r in results)[:60] or repo,
-                              "repo": f"{owner}/{repo}", "ok": ok == len(results), "t": int(time.time())})
-            fb.save_settings(recent=recent[:MAX_RECENT])
-            return {"built": ok, "total": len(results), "out": str(out), "recent": recent[:MAX_RECENT],
-                    "sdk": fb.sdk_version(fw), "fw": fw}
-        return self._run_job("build", work)
+            results, out = fb.build(source, fw, send=(after == "open"), job=job, install=(after == "install"))
+            return self._build_payload(results, out, fw, job, source, repo_label)
+        return self._run_job(fw, work)
+
+    def answer_select(self, appids):
+        self._select_answer = appids  # None = all
+        self._select_event.set()
+        return True
+
+    def rebuild(self, keys, fw, after="none"):
+        """Rebuild library entries (all, or the given keys) for firmware fw."""
+        items = fb.load_library()
+        if keys:
+            items = [i for i in items if i["key"] in set(keys)]
+        groups = {}
+        for i in items:
+            groups.setdefault(i["source"], set()).add(i["appid"])
+        if not groups:
+            return {"error": "Your library is empty. Build something first."}
+
+        def work(job):
+            all_results, done, failed_sources = [], 0, []
+            for n, (source, appids) in enumerate(groups.items(), 1):
+                job.check()
+                job.log(f"\n######## {n}/{len(groups)}: {source}")
+                self._emit("batch", index=n, total=len(groups), source=source)
+                try:
+                    results, out = fb.build(source, fw, job=job, only=sorted(appids))
+                    all_results += results
+                    done += sum(r["ok"] for r in results)
+                except fb.Cancelled:
+                    raise
+                except fb.BuildError as e:
+                    job.log(f"!! {source}: {e}")
+                    failed_sources.append(source)
+            good = [r for r in all_results if r["ok"]]
+            if after in ("install", "open") and good:
+                job.stage("send", f"{len(good)} app(s)")
+                try:
+                    fb.install_to_flipper(job, [(f["path"], r["category"]) for r in good for f in r["files"]])
+                    for r in good:
+                        r["installed"] = True
+                except fb.BuildError as e:
+                    job.log("!! " + str(e))
+                    job.install_error = str(e)
+            out = fb.OUT_DIR
+            payload = self._build_payload(all_results, out, fw, job)
+            payload.update({"rebuild": True, "failed_sources": failed_sources,
+                            "total": len(all_results) + len(failed_sources)})
+            return payload
+        return self._run_job(fw, work)
 
     def update_sdk(self, fw):
         def work(job):
             job.stage("sdk", fb.FIRMWARES[fw][1])
             fb.ensure_sdk(job, fw, force=True)
-            job.log(f"OK {fb.FIRMWARES[fw][0]} SDK is now {fb.sdk_version(fw)}")
-            return {"sdk_only": True, "sdk": fb.sdk_version(fw), "fw": fw}
-        return self._run_job("sdk", work)
+            job.log(f"OK {fb.FIRMWARES[fw][0]} SDK is now {fb.sdk_version(fw)} (API {fb.sdk_api(fw)})")
+            return {"sdk_only": True, "sdk": fb.sdk_version(fw), "api": fb.sdk_api(fw), "fw": fw}
+        return self._run_job(fw, work)
 
     def send(self, app_dir, fw):
         if not Path(app_dir).exists():
@@ -197,14 +297,165 @@ class Api:
             fb.send_to_flipper(job, app_dir, fw)
             job.log("OK Sent. It should be open on your Flipper now.")
             return {"send_only": True}
-        return self._run_job("send", work)
+        return self._run_job(fw, work)
+
+    def install(self, files):
+        """files: [[local_path, category], ...] -> copy to the SD card."""
+        files = [(p, c) for p, c in files if Path(p).is_file()]
+        if not files:
+            return {"error": "Those files are gone. Rebuild the app first."}
+
+        def work(job):
+            job.stage("send", f"{len(files)} file(s)")
+            fb.install_to_flipper(job, files)
+            return {"send_only": True, "installed": True}
+        return self._run_job("install", work)
 
     def cancel(self):
         job = self._job
         if job:
             job.cancel()
+            self._select_event.set()
         return True
 
+    # ------------------------------------------------ library
+    def library(self):
+        return {"items": fb.load_library(),
+                "sdk": {k: {"version": fb.sdk_version(k), "api": fb.sdk_api(k)} for k in fb.FIRMWARES}}
+
+    def library_remove(self, key, delete_file=True):
+        items = fb.load_library()
+        gone = [i for i in items if i["key"] == key]
+        fb.save_library([i for i in items if i["key"] != key])
+        if delete_file:
+            for i in gone:
+                for f in i.get("files", []):
+                    still_used = any(f["path"] == g["file"] for g in fb.load_library())
+                    if not still_used:
+                        try:
+                            Path(f["path"]).unlink(missing_ok=True)
+                        except OSError:
+                            pass
+        return True
+
+    # ------------------------------------------------ discover
+    def catalog(self, force=False):
+        import catalog
+        try:
+            return catalog.load(fb.ROOT / ".cache", force=bool(force))
+        except Exception as e:  # noqa: BLE001
+            return {"error": f"Couldn't load the app catalog: {e}"}
+
+    # ------------------------------------------------ local folders + watch
+    def pick_folder(self):
+        import webview
+        try:
+            res = self._window.create_file_dialog(webview.FileDialog.FOLDER)
+        except AttributeError:
+            res = self._window.create_file_dialog(webview.FOLDER_DIALOG)
+        return res[0] if res else ""
+
+    def set_watch(self, path):
+        """Watch a local folder: emits a 'watch' event when sources change. path '' stops watching."""
+        path = (path or "").strip().strip('"')
+        if path and not fb.is_local(path):
+            return {"error": "Watching only works for a folder on this PC."}
+        self._watch = {"path": path or None, "snap": self._snapshot(path) if path else None}
+        return {"ok": True, "path": path}
+
+    @staticmethod
+    def _snapshot(path):
+        snap = {}
+        for dirpath, dirnames, filenames in os.walk(path):
+            dirnames[:] = [d for d in dirnames if d not in fb.SKIP_DIRS]
+            for f in filenames:
+                if f.endswith((".c", ".h", ".cpp", ".hpp", ".fam", ".png", ".txt", ".fmf", ".json")):
+                    p = os.path.join(dirpath, f)
+                    try:
+                        snap[p] = os.stat(p).st_mtime_ns
+                    except OSError:
+                        pass
+        return snap
+
+    def _watcher(self):
+        pending_since = None
+        while True:
+            time.sleep(1)
+            w = self._watch
+            if not w["path"]:
+                pending_since = None
+                continue
+            try:
+                snap = self._snapshot(w["path"])
+            except OSError:
+                continue
+            if snap != w["snap"]:
+                changed = [Path(p).name for p in set(snap) ^ set(w["snap"] or {})] + \
+                          [Path(p).name for p in snap if (w["snap"] or {}).get(p, snap[p]) != snap[p]]
+                w["snap"] = snap
+                pending_since = time.time()
+                self._pending_changes = changed
+            if pending_since and time.time() - pending_since > 0.8 and not self._job:
+                pending_since = None
+                self._emit("watch", path=w["path"], changed=sorted(set(self._pending_changes))[:6])
+
+    # ------------------------------------------------ Flipper over USB
+    def refresh_device(self):
+        self._device_refresh.set()
+        return self._device
+
+    def _device_monitor(self):
+        import device
+        known = None
+        while True:
+            self._device_refresh.wait(2)
+            forced = self._device_refresh.is_set()
+            self._device_refresh.clear()
+            try:
+                ports = device.find_ports()
+            except Exception:  # noqa: BLE001
+                ports = []
+            key = tuple(sorted(p["port"] for p in ports))
+            if key == known and not forced:
+                continue
+            if self._job and key == known:
+                continue   # don't poke the port while a job may be using it
+            known = key
+            if not ports:
+                self._device = {"connected": False}
+            elif len(ports) > 1:
+                self._device = {"connected": True, "error": "More than one Flipper is plugged in."}
+            else:
+                p = ports[0]
+                time.sleep(0.6)  # let the USB serial settle after plug-in
+                try:
+                    info = device.read_info(p["port"], fb.sdk_dirs())
+                    self._device = {"connected": True, **device.summary(p["port"], p["name"], info)}
+                except Exception as e:  # noqa: BLE001
+                    self._device = {"connected": True, "port": p["port"], "name": p["name"] or "Flipper",
+                                    "error": str(e)}
+            self._emit("device", device=self._device)
+
+    # ------------------------------------------------ app update check
+    def _update_check(self):
+        try:
+            req = urllib.request.Request(
+                "https://api.github.com/repos/c3rb3ruszx/flipper-builder/releases/latest",
+                headers={"User-Agent": "flipper-builder", "Accept": "application/vnd.github+json"})
+            with urllib.request.urlopen(req, timeout=15) as r:
+                rel = json.loads(r.read())
+            latest = rel.get("tag_name", "")
+            if _vtuple(latest) > _vtuple(fb.APP_VERSION):
+                self._emit("update", version=latest.lstrip("v"), url=rel.get("html_url") or fb.REPO_URL + "/releases")
+        except Exception:  # noqa: BLE001
+            pass
+
+    def start_background(self):
+        for target in (self._device_monitor, self._watcher, self._update_check):
+            threading.Thread(target=target, daemon=True).start()
+        return True
+
+    # ------------------------------------------------ misc
     def clear_recent(self):
         fb.save_settings(recent=[])
         return True
@@ -262,7 +513,7 @@ def main():
     api = Api()
     window = webview.create_window(
         fb.APP_NAME, url=str(fb.UI_DIR / "index.html"), js_api=api,
-        width=1120, height=760, min_size=(900, 640), background_color="#0d0d0d",
+        width=1180, height=860, min_size=(960, 720), background_color="#0d0d0d",
     )
     api._window = window
     window.events.shown += lambda: _dark_title_bar(window)

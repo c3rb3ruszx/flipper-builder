@@ -13,6 +13,10 @@ Copy-Item "$root\assets\icon.png" "$root\ui\icon.png" -Force
     --collect-all webview `
     --hidden-import clr `
     --hidden-import gui `
+    --hidden-import device `
+    --hidden-import catalog `
+    --hidden-import flipper_storage `
+    --hidden-import serial.tools.list_ports_windows `
     --collect-submodules ufbt `
     --copy-metadata ufbt `
     --version-file "$root\tools\version_info.txt" `

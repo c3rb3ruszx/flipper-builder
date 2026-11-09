@@ -1,4 +1,4 @@
-﻿"""Flipper Builder: paste a GitHub link to a Flipper Zero app, get a .fap.
+"""Flipper Builder: paste a GitHub link to a Flipper Zero app, get a .fap.
 
 GUI:  pythonw flipper_builder.py            (window: gui.py, UI: ui/)
 CLI:  python flipper_builder.py <github-url> [--fw official|official-dev|momentum|momentum-dev|unleashed|unleashed-dev] [--send]
@@ -20,7 +20,7 @@ import zipfile
 from pathlib import Path
 
 APP_NAME = "Flipper Builder"
-APP_VERSION = "1.2.0"
+APP_VERSION = "1.3.0"
 APP_ID = "c3rb3ruszx.FlipperBuilder"
 REPO_URL = "https://github.com/c3rb3ruszx/flipper-builder"
 FROZEN = getattr(sys, "frozen", False)
@@ -36,7 +36,8 @@ WORK_DIR = ROOT / ".cache" / "work"
 OUT_DIR = ROOT / "output"
 SETTINGS = ROOT / "settings.json"
 SDK_MAX_AGE = 24 * 3600  # refresh the SDK at most once a day
-MAX_APPS = 25
+MAX_APPS = 400        # beyond this it's a whole firmware tree, not an app collection
+LIBRARY = ROOT / "library.json"
 
 MOMENTUM_INDEX = "--index-url=https://up.momentum-fw.dev/firmware/directory.json"
 UNLEASHED_INDEX = "--index-url=https://up.unleashedflip.com/directory.json"
@@ -65,11 +66,21 @@ class Cancelled(BuildError):
 class Job:
     """Hooks a build reports through. The CLI uses the defaults; the GUI overrides them."""
 
-    def __init__(self, log=print, stage=None, progress=None, result=None):
-        self.log = log
+    def __init__(self, log=print, stage=None, progress=None, result=None, select=None):
+        self.lines = []  # recent log lines, for plain-English error hints
+        self._log = log
+
+        def log_and_keep(line):
+            self.lines.append(line)
+            if len(self.lines) > 4000:
+                del self.lines[:1000]
+            self._log(line)
+        self.log = log_and_keep
         self.stage = stage or (lambda name, detail="": None)
         self.progress = progress or (lambda value: None)
         self.result = result or (lambda res: None)
+        # select(apps) -> list of appids to build, or None to build all (the GUI asks the user)
+        self.select = select
         self.cancelled = threading.Event()
         self.proc = None
 
@@ -246,6 +257,138 @@ def sdk_version(fw):
         return None
 
 
+def sdk_api(fw):
+    """API version of the downloaded SDK, e.g. '87.1' (first data line of api_symbols.csv)."""
+    for p in (SDK_DIR / fw / "current" / "sdk_headers").glob("*/targets/*/api_symbols.csv"):
+        try:
+            with open(p, encoding="utf-8") as f:
+                for line in f:
+                    if line.startswith("Version,"):
+                        return line.split(",")[2].strip()
+        except OSError:
+            pass
+    return None
+
+
+def sdk_dirs():
+    """Downloaded SDK folders (any of them carries the USB tools)."""
+    return [SDK_DIR / fw for fw in FIRMWARES if (SDK_DIR / fw / "current" / "scripts").exists()]
+
+
+def sd_path(category, filename):
+    return f"/ext/apps/{category}/{filename}"
+
+
+def install_to_flipper(job, files, port=None):
+    """files: list of (local_path, category). Copies each .fap to /ext/apps/<category>/ over USB."""
+    import device
+    if port is None:
+        ports = device.find_ports()
+        if not ports:
+            raise BuildError("No Flipper found on USB. Plug it in, unlock it, and close qFlipper.")
+        if len(ports) > 1:
+            raise BuildError("More than one Flipper is plugged in. Leave just one connected.")
+        port = ports[0]["port"]
+    job.log(f"== Installing to the Flipper on {port}")
+    try:
+        device.install_files(port, sdk_dirs(),
+                             [(p, sd_path(cat, Path(p).name)) for p, cat in files], log=job.log)
+    except device.DeviceError as e:
+        raise BuildError(str(e))
+
+
+# ---------------------------------------------------------------- library of built apps
+
+def load_library():
+    try:
+        return json.loads(LIBRARY.read_text(encoding="utf-8"))
+    except Exception:  # noqa: BLE001
+        return []
+
+
+def save_library(items):
+    try:
+        LIBRARY.write_text(json.dumps(items, indent=1), encoding="utf-8")
+    except OSError:
+        pass
+
+
+def library_add(results, source, fw):
+    """Remember every successful build, one entry per (source, appid, firmware)."""
+    items = load_library()
+    for r in results:
+        if not r["ok"]:
+            continue
+        key = f"{source}#{r['appid']}#{fw}"
+        items = [i for i in items if i.get("key") != key]
+        f = r["files"][0]
+        items.insert(0, {
+            "key": key, "source": source, "repo": r.get("repo"), "name": r["name"], "appid": r["appid"],
+            "category": r["category"], "version": r.get("version"), "icon": r.get("icon"), "fw": fw,
+            "sdk": r.get("sdk"), "api": r.get("api"), "file": f["path"], "files": r["files"],
+            "size": f["size"], "built": int(time.time()), "local": r.get("local", False),
+        })
+    save_library(items[:500])
+
+
+# ---------------------------------------------------------------- plain-English error hints
+
+OTHER_FW = {"official": ["momentum", "unleashed"], "momentum": ["unleashed", "official"],
+            "unleashed": ["momentum", "official"]}
+
+
+def hints(lines, fw, src=None):
+    """Turn a failed build log into advice a non-developer can act on. Returns [{title, detail, try}]."""
+    text = "\n".join(lines[-1500:])
+    base = fw.replace("-dev", "")
+    alts = [a + ("-dev" if fw.endswith("-dev") else "") for a in OTHER_FW.get(base, [])]
+    out = []
+
+    def add(title, detail, try_fw=None):
+        if not any(h["title"] == title for h in out):
+            out.append({"title": title, "detail": detail, "try": try_fw or []})
+
+    missing_syms = sorted(set(re.findall(r"undefined reference to [`'](\w+)'", text))
+                          | set(re.findall(r"(?:symbol|Symbol)\s+[`'\"]?(\w+)[`'\"]? (?:not found|is missing|isn't)", text)))
+    if missing_syms or re.search(r"(?i)unresolved symbols|missing.*api symbol|not present in (the )?api", text):
+        names = ", ".join(missing_syms[:5]) + ("..." if len(missing_syms) > 5 else "")
+        add("Your firmware's SDK is missing functions this app uses",
+            (f"It calls {names}, " if names else "It calls functions ") +
+            "which this firmware doesn't provide. The app was probably written for a different firmware. "
+            "Try building it for another one.", alts)
+    implicit = sorted(set(re.findall(r"implicit declaration of function '(\w+)'", text)))
+    if implicit:
+        add("The app uses functions this SDK doesn't have",
+            f"{', '.join(implicit[:4])} isn't part of this firmware's SDK. The app may target another "
+            "firmware, or an older or newer SDK than this one.", alts)
+    if re.search(r"unknown type name '|has no member named '|incompatible type for argument|too (few|many) arguments to function", text):
+        add("The firmware's code changed since this app was written",
+            "The app expects types or functions that look different in this SDK. It's probably out of date for "
+            "this firmware, or it was made for another firmware. Check the repo for a newer branch, or try "
+            "another firmware.", alts)
+    m = re.search(r"fatal error: ([\w./\\-]+): No such file or directory", text)
+    if m:
+        header = m.group(1)
+        sub = src and (Path(src) / ".gitmodules").exists()
+        add(f"A file the app needs is missing: {header}",
+            "The repo uses git submodules that didn't download. Install git (or rebuild) so submodules are fetched."
+            if sub and not shutil.which("git") else
+            "It's usually a library that only ships with another firmware (Momentum and Unleashed bundle extra "
+            "libraries), or with a newer SDK.", alts)
+    if re.search(r"(?i)(FlipperManifestException|invalid application manifest|App manifest|application\.fam).*(error|invalid|exception)", text):
+        add("The app's manifest (application.fam) has a problem",
+            "The app's own description file is broken or uses options this SDK doesn't know. That's a bug in "
+            "the app; check its repo for a fix or a newer version.")
+    if re.search(r"(?i)could not resolve host|failed to connect to|connection (timed out|reset)|getaddrinfo failed|urlopen error", text):
+        add("Network problem", "Something couldn't be downloaded. Check your internet connection and try again.")
+    if re.search(r"(?i)no space left on device|not enough space", text):
+        add("Disk is full", "Free up some space on the drive the app lives on, then try again.")
+    if re.search(r"(?i)Failed to find connected Flipper|More than one Flipper|could not open port|Access is denied|PermissionError", text):
+        add("Couldn't talk to the Flipper",
+            "Plug it in, unlock it, leave any open app, and close qFlipper (only one program can use the USB port).")
+    return out
+
+
 class _LogForward(logging.Handler):
     def __init__(self, log):
         super().__init__()
@@ -333,16 +476,16 @@ def send_to_flipper(job, app_dir, fw):
 
 # ---------------------------------------------------------------- main job
 
-def build(url, fw="official", send=False, job=None):
-    """Clone, build every app found, copy .faps to output/. Returns (results, out_dir)."""
-    job = job or Job()
-    log = job.log
-    owner, repo, parts = parse_github_url(url)
-    remote = f"https://github.com/{owner}/{repo}.git"
-    env = ufbt_env(fw)
+# ---------------------------------------------------------------- main job
 
-    job.stage("fetch", f"{owner}/{repo}")
-    log(f"== Repo: {owner}/{repo}   Firmware: {FIRMWARES[fw][0]}")
+def is_local(source):
+    p = source.strip().strip('"')
+    return bool(re.match(r"^[A-Za-z]:[\\/]|^\\\\", p)) and Path(p).is_dir()
+
+
+def fetch_source(job, owner, repo, parts, env):
+    """Clone the GitHub source into WORK_DIR. Returns (src, subdir)."""
+    remote = f"https://github.com/{owner}/{repo}.git"
     use_git = have_git()
     if use_git:
         ref, subdir, is_sha = resolve_ref(job, remote, parts, env)
@@ -352,44 +495,97 @@ def build(url, fw="official", send=False, job=None):
     src = WORK_DIR / f"{owner}__{repo}"
     rmtree(src)
     src.parent.mkdir(parents=True, exist_ok=True)
-    log("== Downloading source")
+    job.log("== Downloading source")
     git = ["git", "-c", "core.longpaths=true", "-c", "advice.detachedHead=false"]
     if not use_git:
-        log("(git isn't installed, downloading a zip instead; submodules won't be included)")
+        job.log("(git isn't installed, downloading a zip instead; submodules won't be included)")
         download_zip(job, owner, repo, ref, src)
     elif is_sha:
-        run(job, git + ["clone", "--recurse-submodules", remote, src], env=env)
-        run(job, git + ["checkout", ref], cwd=src, env=env)
-        run(job, git + ["submodule", "update", "--init", "--recursive"], cwd=src, env=env)
+        # fetch just that commit (GitHub allows it for full SHAs); fall back to a full clone
+        src.mkdir()
+        run(job, git + ["init", "-q"], cwd=src, env=env)
+        run(job, git + ["remote", "add", "origin", remote], cwd=src, env=env)
+        code, _ = run(job, git + ["fetch", "--depth", "1", "origin", ref], cwd=src, env=env, check=False)
+        if code == 0:
+            run(job, git + ["checkout", "-q", "FETCH_HEAD"], cwd=src, env=env)
+        else:
+            rmtree(src)
+            run(job, git + ["clone", remote, src], env=env)
+            run(job, git + ["checkout", "-q", ref], cwd=src, env=env)
+        run(job, git + ["submodule", "update", "--init", "--recursive", "--depth", "1"], cwd=src, env=env)
     else:
         cmd = git + ["clone", "--depth", "1", "--recurse-submodules", "--shallow-submodules"]
         if ref:
             cmd += ["--branch", ref]
         run(job, cmd + [remote, src], env=env)
+    return src, subdir
+
+
+def build(source, fw="official", send=False, job=None, install=False, only=None):
+    """Build every app (or the chosen ones) from a GitHub link or a local folder.
+    send: install + open over USB (ufbt launch). install: copy to the SD card only.
+    only: appids to build (used by 'rebuild my apps'). Returns (results, out_dir)."""
+    job = job or Job()
+    log = job.log
+    job.install_error = None
+    env = ufbt_env(fw)
+    local = is_local(source)
+
+    if local:
+        src = base = Path(source.strip().strip('"')).resolve()
+        repo, label = src.name, str(src)
+        job.stage("fetch", src.name)
+        log(f"== Local folder: {src}   Firmware: {FIRMWARES[fw][0]}")
+    else:
+        owner, repo, parts = parse_github_url(source)
+        label = f"{owner}/{repo}"
+        job.stage("fetch", label)
+        log(f"== Repo: {label}   Firmware: {FIRMWARES[fw][0]}")
+        src, subdir = fetch_source(job, owner, repo, parts, env)
+        base = src / subdir if subdir else src
+        if base.is_file():
+            base = base.parent
+        if not base.exists():
+            raise BuildError(f"Folder '{subdir}' isn't in that repo.")
 
     job.stage("scan")
-    base = src / subdir if subdir else src
-    if base.is_file():
-        base = base.parent
-    if not base.exists():
-        raise BuildError(f"Folder '{subdir}' isn't in that repo.")
     apps, skipped = find_apps(base)
     if not apps:
-        msg = "No Flipper app (application.fam) found in that link."
+        msg = "No Flipper app (application.fam) found there."
         if skipped:
             msg += " Found only firmware-internal apps, which can't be built as .fap."
         raise BuildError(msg)
     if len(apps) > MAX_APPS:
         raise BuildError(
-            f"That link contains {len(apps)} apps (probably a whole firmware or app collection). "
+            f"That contains {len(apps)} apps, which looks like a whole firmware. "
             "Open the folder of the app you want on GitHub and paste that link instead.")
-    log(f"== Found {len(apps)} app(s): " + ", ".join(a["name"] for a in apps))
+    log(f"== Found {len(apps)} app(s): " + ", ".join(a["name"] for a in apps[:40])
+        + (" ..." if len(apps) > 40 else ""))
+
+    if only:
+        apps = [a for a in apps if a["appid"] in set(only)]
+        if not apps:
+            raise BuildError("The app(s) you built before aren't in that source anymore.")
+    elif job.select and len(apps) > 1:
+        chosen = job.select([{
+            "appid": a["appid"], "name": a["name"], "category": a["category"], "version": a["version"],
+            "description": a["description"], "icon": icon_data_uri(a),
+            "path": a["dir"].relative_to(src).as_posix() if a["dir"] != src else "/",
+        } for a in apps])
+        job.check()
+        if chosen is not None:
+            apps = [a for a in apps if a["appid"] in set(chosen)]
+            if not apps:
+                raise Cancelled("Nothing selected.")
+            log(f"== Building {len(apps)} selected app(s)")
 
     job.stage("sdk", FIRMWARES[fw][1])
     env = ensure_sdk(job, fw)
+    version, api = sdk_version(fw), sdk_api(fw)
     out = OUT_DIR / f"{repo}__{fw}"
-    rmtree(out)
-    out.mkdir(parents=True)
+    if not only:
+        rmtree(out)
+    out.mkdir(parents=True, exist_ok=True)
 
     job.stage("build", f"{len(apps)} app(s)")
     total_src = sum(count_sources(a["dir"]) for a in apps)
@@ -412,9 +608,11 @@ def build(url, fw="official", send=False, job=None):
             "name": app["name"], "appid": app["appid"], "category": app["category"],
             "version": app["version"], "author": app["author"], "description": app["description"],
             "icon": icon_data_uri(app), "dir": str(app["dir"]), "fw": fw, "ok": False, "files": [],
+            "repo": label, "source": source.strip(), "sdk": version, "api": api, "local": local,
         }
         if code != 0 or not faps:
             log(f"!! {app['name']} failed to build.")
+            res["hints"] = hints(job.lines, fw, src)
             results.append(res)
             job.result(res)
             continue
@@ -435,12 +633,26 @@ def build(url, fw="official", send=False, job=None):
             except BuildError as e:
                 log("!! " + str(e))
                 res["sent"] = False
+                job.install_error = str(e)
         results.append(res)
         job.result(res)
 
+    library_add(results, source.strip(), fw)
+    good = [r for r in results if r["ok"]]
+    if install and not send and good:
+        job.stage("send", f"{len(good)} app(s)")
+        try:
+            install_to_flipper(job, [(f["path"], r["category"]) for r in good for f in r["files"]])
+            for r in good:
+                r["installed"] = True
+        except Cancelled:
+            raise
+        except BuildError as e:
+            log("!! " + str(e))
+            job.install_error = str(e)
+
     job.progress(1.0)
-    ok = sum(r["ok"] for r in results)
-    log(f"\n== Done: {ok}/{len(results)} built. Files are in {out}")
+    log(f"\n== Done: {len(good)}/{len(results)} built. Files are in {out}")
     return results, out
 
 

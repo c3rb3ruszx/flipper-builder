@@ -196,83 +196,131 @@ const LCD = {
    ===================================================================== */
 let api = null;
 function mockApi() {
-  const fws = [["official", "Official firmware (release)", "OFW", "1.5.1"], ["official-dev", "Official firmware (dev)", "OFW DEV", null],
-    ["momentum", "Momentum", "MOMENTUM", "mntm-012"], ["momentum-dev", "Momentum (dev)", "MNTM DEV", "d3f89dfe"], ["unleashed", "Unleashed", "UNLEASHED", "unlshd-094"],
-    ["unleashed-dev", "Unleashed (dev)", "UNLSHD DEV", null]];
+  const fws = [["official", "Official firmware (release)", "OFW", "1.5.1", "88.2"], ["official-dev", "Official firmware (dev)", "OFW DEV", null, null],
+    ["momentum", "Momentum", "MOMENTUM", "mntm-012", "87.1"], ["momentum-dev", "Momentum (dev)", "MNTM DEV", "d3f89dfe", "87.1"],
+    ["unleashed", "Unleashed", "UNLEASHED", "unlshd-094", "88.1"], ["unleashed-dev", "Unleashed (dev)", "UNLSHD DEV", "1fe23784", "88.25"]];
   let timers = [];
   const emit = (batch) => window.fb.onEvents(batch);
+  const later = (ms, batch) => timers.push(setTimeout(() => emit(batch), ms));
+  const lib = [
+    { key: "a", source: "https://github.com/jblanked/FlipWiFi", repo: "jblanked/FlipWiFi", name: "FlipWiFi", appid: "flip_wifi", category: "GPIO", version: "1.6", fw: "momentum-dev", sdk: "d3f89dfe", api: "87.1", file: "C:\\x.fap", files: [{ path: "C:\\x.fap" }], size: 67000, built: Date.now() / 1000 - 3600 },
+    { key: "b", source: "https://github.com/flipperdevices/flipperzero-good-faps/tree/dev/clock", repo: "flipperdevices/flipperzero-good-faps", name: "Clock", appid: "clock", category: "Tools", version: "1.0", fw: "momentum-dev", sdk: "aaaa", api: "86.0", file: "C:\\c.fap", files: [{ path: "C:\\c.fap" }], size: 3800, built: Date.now() / 1000 - 86400 * 3 },
+    { key: "c", source: "https://github.com/x/dice", repo: "x/dice", name: "Dice D&D", appid: "dice", category: "Games", version: "1.2", fw: "official", sdk: "1.5.1", api: "88.2", file: "C:\\d.fap", files: [{ path: "C:\\d.fap" }], size: 9000, built: Date.now() / 1000 - 600 },
+  ];
   return {
-    init: async () => ({ version: "1.1.0", repo: "https://github.com/c3rb3ruszx/flipper-builder",
-      firmwares: fws.map(([id, label, short, sdk]) => ({ id, label, short, sdk })), fw: "momentum-dev", send: false,
-      recent: [{ url: "https://github.com/jblanked/FlipWiFi", fw: "momentum-dev", name: "FlipWiFi", repo: "jblanked/FlipWiFi", ok: true, t: 0 },
-               { url: "https://github.com/flipperdevices/flipperzero-good-faps/tree/dev/clock", fw: "official", name: "Clock", repo: "flipperdevices/flipperzero-good-faps", ok: true, t: 0 }],
-      clipboard: "", out_dir: "C:\\output" }),
-    clipboard: async () => "",
-    set_prefs: async () => true,
+    init: async () => ({ version: "1.3.0", repo: "https://github.com/c3rb3ruszx/flipper-builder",
+      firmwares: fws.map(([id, label, short, sdk, api]) => ({ id, label, short, sdk, api })), fw: "momentum-dev", after: "none", auto_fw: true,
+      recent: [{ url: "https://github.com/jblanked/FlipWiFi", fw: "momentum-dev", name: "FlipWiFi", repo: "jblanked/FlipWiFi", ok: true, t: 0 }],
+      clipboard: "", out_dir: "C:\\output", device: { connected: false }, library_count: lib.length }),
+    start_background: async () => { later(2500, [{ type: "device", device: { connected: true, port: "COM7", name: "Ochenko", fw: "momentum-dev", fw_name: "Momentum dev", version: "mntm-dev", commit: "d3f89dfe", api: "87.1" } }]);
+      later(4000, [{ type: "update", version: "1.4.0", url: "https://github.com/c3rb3ruszx/flipper-builder/releases" }]); return true; },
+    clipboard: async () => "", set_prefs: async () => true, refresh_device: async () => ({}),
     build: async (url, fw) => {
-      const fail = /fail/.test(url);
-      const steps = [
-        [300, [{ type: "stage", stage: "fetch", detail: "owner/repo" }, { type: "log", line: "== Repo: owner/repo" }, { type: "log", line: "$ git clone --depth 1 ..." }]],
-        [1600, [{ type: "stage", stage: "scan" }, { type: "log", line: "== Found 1 app(s): Demo App" }]],
-        [2300, [{ type: "stage", stage: "sdk", detail: "MNTM DEV" }, { type: "log", line: "SDK d3f89dfe is up to date." }]],
-        [3300, [{ type: "stage", stage: "build", detail: "1 app(s)" }, { type: "log", line: "== Building Demo App (/)" }]],
-      ];
-      for (let p = 1; p <= 10; p++) steps.push([3300 + p * 280, [{ type: "progress", value: p / 10 }, { type: "log", line: `\tCC\tsrc/file_${p}.c` }]]);
-      steps.push([6500, fail
-        ? [{ type: "log", line: "src/main.c:12:5: error: 'foo' undeclared" }, { type: "log", line: "!! Command failed" }, { type: "finished", ok: false, error: "Demo App failed to build." }]
-        : [{ type: "result", result: { name: "Demo App", appid: "demo_app", category: "GPIO", ok: true, icon: null, dir: "x", fw,
-             files: [{ name: "demo_app.fap", path: "C:\\output\\demo_app.fap", size: 24576 }] } },
-           { type: "log", line: "OK Demo App: demo_app.fap" },
-           { type: "finished", ok: true, built: 1, total: 1, out: "C:\\output", fw, sdk: "d3f89dfe",
-             recent: [{ url, fw, name: "Demo App", repo: "owner/repo", ok: true, t: 0 }] }]]);
-      timers = steps.map(([ms, b]) => setTimeout(() => emit(b), ms));
-      return { ok: true };
+      const fail = /fail/.test(url), multi = /multi/.test(url);
+      later(300, [{ type: "stage", stage: "fetch", detail: "owner/repo" }, { type: "log", line: "== Repo: owner/repo" }]);
+      later(1300, [{ type: "stage", stage: "scan" }, { type: "log", line: "== Found 3 app(s)" }]);
+      if (multi) { later(1600, [{ type: "select", apps: ["Air Arkanoid:air_arkanoid:Games", "Clock:clock:Tools", "Music Player:music_player:Media", "Weather Station:weather_station:Sub-GHz", "NFC Magic:nfc_magic:NFC"].map((s) => { const [name, appid, category] = s.split(":"); return { name, appid, category, path: appid, icon: null, version: "1.0" }; }) }]); return { ok: true }; }
+      return mockApi.rest(later, url, fw, fail);
     },
-    update_sdk: async (fw) => { setTimeout(() => emit([{ type: "stage", stage: "sdk" }]), 100);
-      setTimeout(() => emit([{ type: "finished", ok: true, sdk_only: true, fw, sdk: "new123" }]), 2500); return { ok: true }; },
-    send: async () => { setTimeout(() => emit([{ type: "stage", stage: "send" }]), 100);
-      setTimeout(() => emit([{ type: "finished", ok: true, send_only: true }]), 2500); return { ok: true }; },
+    answer_select: async (ids) => { mockApi.rest(later, "multi", "momentum-dev", false); return true; },
+    rebuild: async (keys, fw) => { later(200, [{ type: "batch", index: 1, total: 2, source: "x" }]); return mockApi.rest(later, "lib", fw, false, true); },
+    update_sdk: async (fw) => { later(100, [{ type: "stage", stage: "sdk" }]); later(2000, [{ type: "finished", ok: true, sdk_only: true, fw, sdk: "new123", api: "87.2" }]); return { ok: true }; },
+    send: async () => { later(100, [{ type: "stage", stage: "send" }]); later(2000, [{ type: "finished", ok: true, send_only: true }]); return { ok: true }; },
+    install: async () => { later(100, [{ type: "stage", stage: "send" }]); later(1800, [{ type: "finished", ok: true, send_only: true, installed: true }]); return { ok: true }; },
     cancel: async () => { timers.forEach(clearTimeout); emit([{ type: "finished", ok: false, cancelled: true, error: "Cancelled." }]); return true; },
+    library: async () => ({ items: lib, sdk: Object.fromEntries(fws.map(([id, , , v, a]) => [id, { version: v, api: a }])) }),
+    library_remove: async () => true,
+    catalog: async () => { await sleep(600); const cats = ["Games", "GPIO", "Tools", "NFC", "Sub-GHz", "Media"];
+      return { count: 60, apps: Array.from({ length: 60 }, (_, i) => ({ id: "app_" + i, name: ["Snake", "Dice", "Tetris", "Wifi Marauder", "Signal Gen", "Metronome", "Tuner", "Nfc Magic", "Doom Fire", "Bt Remote"][i % 10] + " " + (i + 1), category: cats[i % cats.length], repo: "someone/app" + i, url: "https://github.com/someone/app" + i })) }; },
+    pick_folder: async () => "C:\\code\\my_app", set_watch: async (p) => ({ ok: true, path: p }),
     clear_recent: async () => true, open_folder: async () => true, open_url: async () => true, copy: async () => true,
   };
 }
+mockApi.rest = (later, url, fw, fail, rebuild) => {
+  later(2000, [{ type: "stage", stage: "sdk", detail: "MNTM DEV" }]);
+  later(2800, [{ type: "stage", stage: "build", detail: "1 app(s)" }]);
+  for (let p = 1; p <= 8; p++) later(2800 + p * 250, [{ type: "progress", value: p / 8 }, { type: "log", line: `\tCC\tsrc/file_${p}.c` }]);
+  later(5200, fail
+    ? [{ type: "log", line: "main.c:(.text+0x1a): undefined reference to `subghz_devices_foo'" },
+       { type: "finished", ok: false, error: "Demo App failed to build.", hints: [{ title: "Your firmware's SDK is missing functions this app uses", detail: "It calls subghz_devices_foo, which this firmware doesn't provide. The app was probably written for a different firmware. Try building it for another one.", try: ["unleashed-dev", "official-dev"] }] }]
+    : [{ type: "result", result: { name: "Demo App", appid: "demo_app", category: "GPIO", ok: true, icon: null, dir: "x", fw, api: "87.1",
+         files: [{ name: "demo_app.fap", path: "C:\\output\\demo_app.fap", size: 24576 }] } },
+       { type: "finished", ok: true, built: 1, total: 1, out: "C:\\output", fw, sdk: "d3f89dfe", api: "87.1", rebuild: !!rebuild,
+         recent: [{ url, fw, name: "Demo App", repo: "owner/repo", ok: true, t: 0 }] }]);
+  return { ok: true };
+};
 
 /* =====================================================================
    App state + UI
    ===================================================================== */
 const S = {
-  fws: [], fw: "official", send: false, busy: null, stage: null, progress: 0,
+  fws: [], fw: "official", after: "none", autoFw: true, busy: null, stage: null, progress: 0,
   results: [], recent: [], repo: "", lastClip: "", idleTimer: null, sleepTimer: null, outDir: "",
+  device: { connected: false }, tab: "build", lib: null, libFilter: "all", catalog: null, catFilter: "All",
+  watch: "", pickApps: [], pickOn: new Set(), batch: null,
 };
 const STAGES = ["fetch", "scan", "sdk", "build", "done"];
 const STAGE_RANGE = { fetch: [0, .16], scan: [.16, .22], sdk: [.22, .38], build: [.38, .96], send: [.96, 1], done: [1, 1] };
 const STAGE_ANIM = { fetch: "books", scan: "books", sdk: "laptop", build: "soldering", send: "radio" };
 const IDLE_ANIMS = ["waves", "painting", "procrastinating"];
 const TIPS = [
-  "Paste a GitHub link!", "Folder links build one app", "Left / right picks firmware",
-  "Poke me!", "Need a .fap?", "Enter builds, Esc cancels", "Drop a link on me",
+  "Paste a GitHub link!", "Folder links build one app", "Left / right picks firmware", "Poke me!",
+  "Need a .fap?", "Enter builds, Esc cancels", "Drop a link on me", "Try the Discover tab", "Plug me in over USB!",
 ];
 
 function fwObj(id = S.fw) { return S.fws.find((f) => f.id === id) || S.fws[0]; }
+const esc = (s) => String(s ?? "").replace(/[&<>"]/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" }[c]));
+function apiOk(appApi, devApi) {           // same rule as the firmware loader
+  if (!appApi || !devApi) return null;
+  const [am, an] = appApi.split(".").map(Number), [dm, dn] = devApi.split(".").map(Number);
+  return am === dm && dn >= an;
+}
+function ago(t) {
+  const s = Date.now() / 1000 - t;
+  if (s < 90) return "just now";
+  if (s < 3600) return Math.round(s / 60) + " min ago";
+  if (s < 86400) return Math.round(s / 3600) + " h ago";
+  return Math.round(s / 86400) + " d ago";
+}
+const isLocalPath = (t) => /^[A-Za-z]:[\\/]|^\\\\/.test((t || "").trim());
 
 /* ---------- LED ---------- */
-function led(color, blink = false) {
-  const l = $("#led");
-  l.className = "led" + (color ? " " + color : "") + (blink ? " blink" : "");
-}
+function led(color, blink = false) { $("#led").className = "led" + (color ? " " + color : "") + (blink ? " blink" : ""); }
 
 /* ---------- idle behaviour ---------- */
 function goIdle(sayText) {
   clearTimeout(S.idleTimer); clearTimeout(S.sleepTimer);
-  const pick = IDLE_ANIMS[Math.floor(Math.random() * IDLE_ANIMS.length)];
-  LCD.play(pick);
+  if (S.watch) { LCD.play("laptop"); LCD.say(sayText || "Watching your folder...", sayText ? 5000 : 0); return; }
+  LCD.play(IDLE_ANIMS[Math.floor(Math.random() * IDLE_ANIMS.length)]);
   if (sayText) LCD.say(sayText, 5000);
   S.idleTimer = setTimeout(() => { if (!S.busy) goIdle(Math.random() < .6 ? TIPS[Math.floor(Math.random() * TIPS.length)] : ""); }, 26000);
-  S.sleepTimer = setTimeout(() => { if (!S.busy) { clearTimeout(S.idleTimer); LCD.play("sleep"); LCD.say("zzz..."); } }, 240000);
+  S.sleepTimer = setTimeout(() => { if (!S.busy && !S.watch) { clearTimeout(S.idleTimer); LCD.play("sleep"); LCD.say("zzz..."); } }, 240000);
 }
 function wake() {
   if (!S.busy && LCD.key === "sleep") goIdle("Oh! Hi again");
-  else if (!S.busy) { clearTimeout(S.sleepTimer); S.sleepTimer = setTimeout(() => { if (!S.busy) { LCD.play("sleep"); LCD.say("zzz..."); } }, 240000); }
+  else if (!S.busy && !S.watch) { clearTimeout(S.sleepTimer); S.sleepTimer = setTimeout(() => { if (!S.busy) { LCD.play("sleep"); LCD.say("zzz..."); } }, 240000); }
+}
+
+/* ---------- tabs ---------- */
+const TAB_ORDER = ["build", "library", "discover"];
+function setTab(name) {
+  const prev = S.tab; S.tab = name;
+  $$(".tab").forEach((t) => t.classList.toggle("on", t.dataset.tab === name));
+  $$(".pane").forEach((p) => {
+    const on = p.dataset.pane === name;
+    p.classList.toggle("left", !on && TAB_ORDER.indexOf(p.dataset.pane) < TAB_ORDER.indexOf(name));
+    p.classList.toggle("on", on);
+  });
+  moveInk($("#tabInk"), $(`.tab[data-tab="${name}"]`), true);
+  if (name === "library") loadLibrary();
+  if (name === "discover") loadCatalog();
+  if (prev !== name) wake();
+}
+function moveInk(ink, btn, flat) {
+  if (!btn) return;
+  ink.style.width = btn.offsetWidth + "px";
+  if (flat) ink.style.transform = `translateX(${btn.offsetLeft}px)`;
+  else { ink.style.height = btn.offsetHeight + "px"; ink.style.transform = `translate(${btn.offsetLeft}px, ${btn.offsetTop}px)`; }
 }
 
 /* ---------- firmware selector ---------- */
@@ -281,7 +329,7 @@ function renderFirmwares() {
   $$(".fw", row).forEach((b) => b.remove());
   S.fws.forEach((f) => {
     const b = document.createElement("button");
-    b.className = "fw"; b.dataset.fw = f.id; b.title = f.label;
+    b.className = "fw"; b.dataset.fw = f.id; b.title = f.label + (f.api ? ` (SDK API ${f.api})` : "");
     b.innerHTML = `<span class="fw-name">${f.short}</span><span class="fw-sdk">${f.sdk || "not downloaded"}</span>`;
     b.onclick = () => setFw(f.id, true);
     row.appendChild(b);
@@ -290,18 +338,18 @@ function renderFirmwares() {
 }
 function setFw(id, user) {
   S.fw = id;
-  const row = $("#fwRow"), btn = $(`.fw[data-fw="${id}"]`, row), ind = $("#fwIndicator");
+  const row = $("#fwRow"), btn = $(`.fw[data-fw="${id}"]`, row);
   $$(".fw", row).forEach((b) => b.classList.toggle("on", b === btn));
-  if (btn) {
-    ind.style.width = btn.offsetWidth + "px"; ind.style.height = btn.offsetHeight + "px";
-    ind.style.transform = `translate(${btn.offsetLeft}px, ${btn.offsetTop}px)`;
-  }
+  moveInk($("#fwIndicator"), btn, false);
   const f = fwObj();
   $("#deviceFw").textContent = f.short;
   $("#sdkPillText").textContent = `SDK ${f.sdk || "not downloaded"}`;
+  $("#rebuildLabel").textContent = `Rebuild all for ${f.short}`;
+  renderCompat();
   if (user) {
-    api.set_prefs(S.fw, S.send);
+    api.set_prefs(S.fw, S.after);
     if (!S.busy) { LCD.say(`${f.short}: ${f.sdk ? "SDK " + f.sdk : "SDK not downloaded yet"}`, 3500); wake(); }
+    if (S.tab === "library") renderLibrary();
   }
 }
 function cycleFw(d) {
@@ -310,10 +358,83 @@ function cycleFw(d) {
   setFw(S.fws[(i + d + S.fws.length) % S.fws.length].id, true);
 }
 
+/* ---------- after-build mode ---------- */
+function setAfter(mode, user) {
+  S.after = mode;
+  $$("#afterSeg button").forEach((b) => b.classList.toggle("on", b.dataset.after === mode));
+  moveInk($("#afterInk"), $(`#afterSeg button[data-after="${mode}"]`), false);
+  if (user) {
+    api.set_prefs(S.fw, S.after);
+    if (!S.busy && mode !== "none") LCD.say(S.device.connected ? "I'll beam it over USB" : "Plug your Flipper in first!", 3000);
+  }
+}
+
+/* ---------- device (Flipper over USB) ---------- */
+function onDevice(d) {
+  const was = S.device;
+  S.device = d || { connected: false };
+  const pill = $("#devicePill"), txt = $("#deviceText");
+  pill.className = "pill device-pill";
+  if (!S.device.connected) { txt.textContent = "No Flipper"; }
+  else if (S.device.error) { pill.classList.add("err"); txt.textContent = (S.device.name || "Flipper") + " · busy"; pill.title = S.device.error; }
+  else {
+    pill.classList.add("on");
+    txt.textContent = `${S.device.name} · ${S.device.fw_name || "?"}`;
+    pill.title = `${S.device.version || ""} ${S.device.commit ? "(" + S.device.commit + ")" : ""} · API ${S.device.api || "?"} · ${S.device.port}`;
+  }
+  const newly = S.device.connected && !S.device.error && (!was.connected || was.error || was.port !== S.device.port);
+  if (newly) {
+    led("blue"); setTimeout(() => !S.busy && led(null), 1200);
+    let msg = `Hi ${S.device.name}!`;
+    if (S.device.fw && S.autoFw && S.device.fw !== S.fw && S.fws.some((f) => f.id === S.device.fw)) {
+      setFw(S.device.fw, false); api.set_prefs(S.fw, S.after);
+      toast(`Flipper on ${S.device.fw_name}: switched to ${fwObj().short}`);
+      msg += ` You run ${S.device.fw_name}`;
+    } else if (!S.device.fw) {
+      toast(`${S.device.fw_name || "This firmware"} isn't one I know. Pick the closest one.`);
+    }
+    if (!S.busy) { LCD.say(msg, 4000); LCD.poke(); }
+  } else if (was.connected && !S.device.connected && !S.busy) {
+    LCD.say("Bye Flipper!", 2500);
+  }
+  renderCompat();
+  if (S.tab === "library") renderLibrary();
+}
+function renderCompat() {
+  const c = $("#compat"), d = S.device, f = fwObj();
+  if (!f) return;
+  c.className = "compat";
+  if (!d.connected) { c.innerHTML = `<span>Plug in your Flipper and I'll match the firmware for you.</span>`; return; }
+  if (d.error) { c.classList.add("warn"); c.innerHTML = `<span>${esc(d.error)}</span><button id="devRetry">Try again</button>`;
+    $("#devRetry").onclick = () => api.refresh_device(); return; }
+  if (d.fw && d.fw !== S.fw) {
+    const want = fwObj(d.fw);
+    c.classList.add("warn");
+    c.innerHTML = `<span>Your Flipper runs <b>${esc(d.fw_name)}</b>, but ${esc(f.short)} is selected.</span>` +
+      (want ? `<button id="useDevFw">Use ${esc(want.short)}</button>` : "");
+    if (want) $("#useDevFw").onclick = () => setFw(d.fw, true);
+    return;
+  }
+  const ok = apiOk(f.api, d.api);
+  if (ok === false) {
+    const sdkNewer = f.api && d.api && f.api.localeCompare(d.api, undefined, { numeric: true }) > 0;
+    c.classList.add("bad");
+    c.innerHTML = `<span>SDK API ${esc(f.api)} won't run on your Flipper (API ${esc(d.api)}). ` +
+      (sdkNewer ? "Update your Flipper's firmware." : "Update the SDK.") + `</span>` +
+      (sdkNewer ? "" : `<button id="compatSdk">Update SDK</button>`);
+    if (!sdkNewer) $("#compatSdk").onclick = () => startJob("sdk", () => api.update_sdk(S.fw));
+  } else {
+    c.classList.add("ok");
+    c.innerHTML = `<span>&#10003; Matches your Flipper: <b>${esc(d.fw_name || "?")}</b> · API ${esc(d.api || "?")}` +
+      (f.api ? ` · SDK API ${esc(f.api)}` : " · SDK downloads on first build") + `</span>`;
+  }
+}
+
 /* ---------- link preview ---------- */
 function parseLink(text) {
   let u = (text || "").trim().replace(/^"|"$/g, "");
   if (!u) return null;
+  if (isLocalPath(u)) return { local: true, path: u, name: u.split(/[\\/]/).filter(Boolean).pop() };
   let m = u.match(/^git@github\.com:([^/]+)\/(.+?)(?:\.git)?$/);
   if (m) return { owner: m[1], repo: m[2], rest: [] };
   u = u.replace(/^https?:\/\//, "").replace(/^(www\.)?github\.com\//, "").split(/[?#]/)[0].replace(/\/+$/, "");
@@ -324,22 +445,44 @@ function parseLink(text) {
   return { owner: parts[0], repo: parts[1].replace(/\.git$/, ""), rest };
 }
 function renderPreview() {
-  const p = parseLink($("#url").value), box = $("#preview");
+  const val = $("#url").value, p = parseLink(val), box = $("#preview");
   $("#inputWrap").classList.remove("bad");
-  if (!p) { box.innerHTML = ""; return; }
-  if (p.bad) { box.innerHTML = `<span class="chip bad">Not a GitHub link</span>`; return; }
-  const chips = [`<span class="chip">${esc(p.owner)} / ${esc(p.repo)}</span>`];
-  if (p.rest.length) chips.push(`<span class="chip muted">${esc(p.rest[0])}</span>`);
-  if (p.rest.length > 1) chips.push(`<span class="chip muted">${esc(p.rest.slice(1).join("/"))}</span>`);
-  else chips.push(`<span class="chip muted">${p.rest.length ? "whole branch" : "default branch"}</span>`);
-  const key = p.owner + "/" + p.repo;
-  if (box.dataset.key !== key + p.rest.join("/")) {
+  $("#inIcon").innerHTML = pixelIcon(p && p.local ? "folder" : "github");
+  if (S.watch && (!p || !p.local || p.path !== S.watch)) setWatch("");
+  if (!p) { box.innerHTML = ""; box.dataset.key = ""; return; }
+  if (p.bad) { box.innerHTML = `<span class="chip bad">Not a GitHub link or folder</span>`; box.dataset.key = ""; return; }
+  let chips, key;
+  if (p.local) {
+    key = "local:" + p.path;
+    chips = [`<span class="chip">${esc(p.name)}</span>`, `<span class="chip muted">local folder</span>`,
+      `<span class="chip watch ${S.watch ? "on" : ""}" id="watchChip" title="Rebuild automatically whenever you save a file">${S.watch ? "&#9679; watching" : "&#9675; watch &amp; rebuild"}</span>`];
+  } else {
+    key = p.owner + "/" + p.repo + p.rest.join("/");
+    chips = [`<span class="chip">${esc(p.owner)} / ${esc(p.repo)}</span>`];
+    if (p.rest.length) chips.push(`<span class="chip muted">${esc(p.rest[0].length === 40 ? p.rest[0].slice(0, 8) : p.rest[0])}</span>`);
+    if (p.rest.length > 1) chips.push(`<span class="chip muted">${esc(p.rest.slice(1).join("/"))}</span>`);
+    else chips.push(`<span class="chip muted">${p.rest.length ? "whole branch" : "default branch"}</span>`);
+  }
+  if (box.dataset.key !== key + S.watch) {
     box.innerHTML = chips.join("");
-    box.dataset.key = key + p.rest.join("/");
-    if (!S.busy && key !== S.repo) { S.repo = key; LCD.say(`Ooh, ${p.repo}!`, 3000); LCD.poke(); }
+    box.dataset.key = key + S.watch;
+    const w = $("#watchChip");
+    if (w) w.onclick = () => setWatch(S.watch ? "" : p.path);
+    const short = p.local ? p.name : p.repo;
+    if (!S.busy && short !== S.repo) { S.repo = short; LCD.say(`Ooh, ${short}!`, 3000); LCD.poke(); }
   }
 }
-const esc = (s) => String(s).replace(/[&<>"]/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" }[c]));
+
+/* ---------- watch mode (local folders) ---------- */
+async function setWatch(path) {
+  const r = await api.set_watch(path);
+  if (r && r.error) { toast(r.error); return; }
+  S.watch = path;
+  $("#preview").dataset.key = "";
+  renderPreview();
+  if (path) { toast("Watching: saves rebuild automatically"); if (!S.busy) goIdle("Watching your folder..."); }
+  else if (!S.busy) goIdle();
+}
 
 /* ---------- progress bar ---------- */
 const BAR_N = 32;
@@ -348,7 +491,7 @@ function initBar() { $("#bar").innerHTML = "<i></i>".repeat(BAR_N); }
 function paintBar(value, mode) {
   const cells = $$("#bar i"), lit = Math.round(value * BAR_N);
   cells.forEach((c, i) => { c.className = i < lit ? (mode || "on") : ""; });
-  if (S.busy && mode !== "ok" && mode !== "err" && lit < BAR_N) {   // a sweeping "working" cell ahead of the fill
+  if (S.busy && mode !== "ok" && mode !== "err" && lit < BAR_N) {
     const [, end] = STAGE_RANGE[S.stage] || [0, 1];
     const span = Math.max(1, Math.round(end * BAR_N) - lit);
     const k = lit + (barScan % span);
@@ -360,9 +503,7 @@ setInterval(() => { if (S.busy) { barScan++; paintBar(S.progress); } }, 110);
 function setStage(name) {
   S.stage = name;
   const idx = STAGES.indexOf(name === "send" ? "build" : name);
-  $$(".stage").forEach((el, i) => {
-    el.className = "stage" + (i < idx ? " done" : i === idx ? " active" : "");
-  });
+  $$(".stage").forEach((el, i) => { el.className = "stage" + (i < idx ? " done" : i === idx ? " active" : ""); });
   S.progress = Math.max(S.progress, (STAGE_RANGE[name] || [0])[0]);
 }
 function resetStages() { $$(".stage").forEach((el) => (el.className = "stage")); S.progress = 0; paintBar(0); }
@@ -371,20 +512,34 @@ function resetStages() { $$(".stage").forEach((el) => (el.className = "stage"));
 function setBuildButton(busy) {
   const b = $("#buildBtn"), l = $("#buildLabel");
   l.classList.add("swap");
-  setTimeout(() => {
-    b.classList.toggle("busy", busy);
-    l.textContent = busy ? "Cancel" : "Build .fap";
-    l.classList.remove("swap");
-  }, 140);
+  setTimeout(() => { b.classList.toggle("busy", busy); l.textContent = busy ? "Cancel" : "Build .fap"; l.classList.remove("swap"); }, 140);
 }
 
-/* ---------- shelf: results + recent ---------- */
+/* ---------- shared bits ---------- */
 function fmtSize(n) { return n > 1024 ? (n / 1024).toFixed(1) + " KB" : n + " B"; }
+function appIcon(r, cls = "") {
+  if (r.icon) return `<div class="app-icon ${cls}"><img src="${r.icon}" alt=""></div>`;
+  return `<div class="app-icon none ${cls}"><i data-icon="usb"></i></div>`;
+}
+function iconBtn(icon, title, fn) {
+  const b = document.createElement("button");
+  b.className = "icon-btn"; b.title = title; b.innerHTML = `<i data-icon="${icon}"></i>`;
+  b.onclick = (e) => { e.stopPropagation(); fn(); };
+  return b;
+}
+function needDevice() {
+  if (S.device.connected && !S.device.error) return true;
+  toast(S.device.error ? "Flipper is busy: close qFlipper" : "Plug in your Flipper first");
+  LCD.say("Plug me in over USB!", 3000); LCD.poke();
+  return false;
+}
+
+/* ---------- build tab shelf: results + recent ---------- */
 function renderShelf() {
   const body = $("#shelfBody"), title = $("#shelfTitle"), actions = $("#shelfActions");
   body.innerHTML = ""; actions.innerHTML = "";
-  if (S.busy === "build" && !S.results.length) {
-    title.textContent = "Working";
+  if (S.busy && !S.results.length && S.busy !== "sdk") {
+    title.textContent = S.batch ? `Rebuilding ${S.batch.index} of ${S.batch.total}` : "Working";
     body.innerHTML = `<div class="skeleton"><span class="blk"></span>Your .fap will show up here</div>`;
   } else if (S.results.length) {
     title.textContent = "Built";
@@ -407,10 +562,10 @@ function renderShelf() {
     });
   } else {
     title.textContent = "Getting started";
-    body.innerHTML = `<div class="empty">Paste a link to any Flipper Zero app on GitHub: a repo, a branch, or an app's folder.<br>
-      Try <a data-ex="https://github.com/flipperdevices/flipperzero-good-faps/tree/dev/clock">the official Clock app</a>
-      or <a data-ex="https://github.com/flipperdevices/flipperzero-good-faps/tree/dev/music_player">Music Player</a>.</div>`;
+    body.innerHTML = `<div class="empty">Paste a link to any Flipper Zero app on GitHub (a repo, a branch, or an app's folder), pick a folder on this PC,
+      or browse the <a id="goDiscover">Discover</a> tab. Try <a data-ex="https://github.com/flipperdevices/flipperzero-good-faps/tree/dev/clock">the official Clock app</a>.</div>`;
     $$("a[data-ex]", body).forEach((a) => (a.onclick = () => { $("#url").value = a.dataset.ex; renderPreview(); }));
+    $("#goDiscover", body).onclick = () => setTab("discover");
   }
   renderIcons(document);
 }
@@ -418,13 +573,10 @@ function resultCard(r, i) {
   const el = document.createElement("div");
   el.className = "card" + (r.ok ? "" : " fail");
   el.style.animationDelay = i * 70 + "ms";
-  const icon = r.ok
-    ? (r.icon ? `<div class="app-icon"><img src="${r.icon}" alt=""></div>` : `<div class="app-icon none"><i data-icon="usb"></i></div>`)
-    : `<div class="app-icon bad"><i data-icon="cross"></i></div>`;
+  const icon = r.ok ? appIcon(r) : `<div class="app-icon bad"><i data-icon="cross"></i></div>`;
   const file = r.files && r.files[0];
-  const sub = r.ok
-    ? `${esc(file.name)} · ${fmtSize(file.size)} · SD: <b>apps/${esc(r.category)}/</b>`
-    : `failed to build · see the log`;
+  const flag = r.installed || r.sent ? ` · <b style="color:var(--ok)">on your Flipper</b>` : "";
+  const sub = r.ok ? `${esc(file.name)} · ${fmtSize(file.size)} · SD: <b>apps/${esc(r.category)}/</b>${flag}` : `failed to build · see the hints above`;
   el.innerHTML = `${icon}<div class="card-main"><div class="card-title">${esc(r.name)}${r.version ? ` <span style="color:var(--dim);font-size:12px">v${esc(r.version)}</span>` : ""}</div>
     <div class="card-sub">${sub}</div></div><div class="card-actions"></div>`;
   const acts = $(".card-actions", el);
@@ -432,18 +584,154 @@ function resultCard(r, i) {
     acts.append(
       iconBtn("folder", "Show in folder", () => api.open_folder(file.path)),
       iconBtn("copy", "Copy SD card path", async () => { await api.copy(`apps/${r.category}/${file.name}`); toast("SD path copied"); }),
-      iconBtn("usb", "Send to Flipper over USB", () => startJob("send", () => api.send(r.dir, r.fw))),
+      iconBtn("download", "Install to the Flipper's SD card", () => needDevice() && startJob("install", () => api.install(r.files.map((f) => [f.path, r.category])))),
+      iconBtn("usb", "Install & open on the Flipper", () => needDevice() && startJob("send", () => api.send(r.dir, r.fw))),
     );
-  } else {
-    acts.append(iconBtn("terminal", "Show log", () => openLog(true)));
-  }
+  } else acts.append(iconBtn("terminal", "Show log", () => openLog(true)));
   return el;
 }
-function iconBtn(icon, title, fn) {
-  const b = document.createElement("button");
-  b.className = "icon-btn"; b.title = title; b.innerHTML = `<i data-icon="${icon}"></i>`;
-  b.onclick = fn;
-  return b;
+
+/* ---------- library tab ---------- */
+async function loadLibrary() {
+  const data = await api.library();
+  S.lib = data;
+  $("#libCount").textContent = data.items.length || "";
+  renderLibrary();
+}
+function libStatus(item) {
+  const d = S.device;
+  if (d.connected && !d.error && d.fw === item.fw && d.api) {
+    const ok = apiOk(item.api, d.api);
+    if (ok === false) return ["bad", "won't run on your Flipper"];
+    if (ok) return ["ok", "runs on your Flipper"];
+  }
+  const cur = S.lib.sdk[item.fw] && S.lib.sdk[item.fw].api;
+  if (cur && item.api && cur !== item.api) return ["old", `outdated (SDK now ${cur})`];
+  return ["", ""];
+}
+function renderLibrary() {
+  if (!S.lib) return;
+  const items = S.lib.items, list = $("#libList"), filt = $("#libFilter");
+  const counts = {};
+  items.forEach((i) => (counts[i.fw] = (counts[i.fw] || 0) + 1));
+  if (S.libFilter !== "all" && !counts[S.libFilter]) S.libFilter = "all";
+  filt.innerHTML = `<button class="fchip ${S.libFilter === "all" ? "on" : ""}" data-f="all">All<small>${items.length}</small></button>` +
+    Object.keys(counts).map((fw) => `<button class="fchip ${S.libFilter === fw ? "on" : ""}" data-f="${fw}">${esc((fwObj(fw) || { short: fw }).short)}<small>${counts[fw]}</small></button>`).join("");
+  $$(".fchip", filt).forEach((b) => (b.onclick = () => { S.libFilter = b.dataset.f; renderLibrary(); }));
+  const shown = items.filter((i) => S.libFilter === "all" || i.fw === S.libFilter);
+  const stale = shown.filter((i) => libStatus(i)[0] === "old" || libStatus(i)[0] === "bad").length;
+  $("#libNote").innerHTML = items.length
+    ? `Every app you've built. After a firmware update, <b>Rebuild all</b> builds them again for the firmware selected on the Build tab` +
+      (S.after !== "none" ? " and installs them to your Flipper." : ".") + (stale ? ` <span style="color:var(--orange-2)">${stale} need a rebuild.</span>` : "")
+    : "";
+  $("#rebuildAll").disabled = !shown.length;
+  list.innerHTML = "";
+  if (!items.length) {
+    list.innerHTML = `<div class="empty-big"><b>Nothing here yet</b>Apps you build show up here, so you can reinstall them<br>or rebuild them all after a firmware update.</div>`;
+    return;
+  }
+  shown.forEach((it, idx) => {
+    const [cls, label] = libStatus(it);
+    const row = document.createElement("div");
+    row.className = "row"; row.style.animationDelay = Math.min(idx, 12) * 30 + "ms";
+    row.innerHTML = `${appIcon(it)}<div style="min-width:0"><div class="row-title">${esc(it.name)}${it.version ? ` <span style="color:var(--dim);font-size:12px">v${esc(it.version)}</span>` : ""}</div>
+      <div class="row-sub"><span class="badge fw">${esc((fwObj(it.fw) || { short: it.fw }).short)}</span>${cls ? `<span class="badge ${cls}">${esc(label)}</span>` : ""}
+      <span title="${fmtSize(it.size || 0)}">API ${esc(it.api || "?")} · ${ago(it.built)}</span></div></div><div class="row-actions"></div>`;
+    $(".row-actions", row).append(
+      iconBtn("download", "Install to the Flipper's SD card", () => needDevice() && startJob("install", () => api.install((it.files || [{ path: it.file }]).map((f) => [f.path, it.category])))),
+      iconBtn("refresh", `Rebuild for ${fwObj().short}`, () => startRebuild([it.key])),
+      iconBtn("folder", "Show the file", () => api.open_folder(it.file)),
+      iconBtn("trash", "Remove from library (deletes the .fap)", async () => { await api.library_remove(it.key, true); loadLibrary(); toast("Removed"); }),
+    );
+    row.onclick = () => { $("#url").value = it.source; setTab("build"); renderPreview(); };
+    row.style.cursor = "pointer"; row.title = `${it.source}\nClick to load it on the Build tab`;
+    list.appendChild(row);
+  });
+  renderIcons(list);
+}
+function startRebuild(keys) {
+  if (S.busy) return;
+  const shownKeys = keys || S.lib.items.filter((i) => S.libFilter === "all" || i.fw === S.libFilter).map((i) => i.key);
+  if (S.after !== "none" && !needDevice()) return;
+  S.results = []; logCount = 0; $("#logBody").innerHTML = ""; S.batch = null;
+  setTab("build");
+  startJob("rebuild", () => api.rebuild(shownKeys, S.fw, S.after));
+  renderShelf();
+}
+
+/* ---------- discover tab ---------- */
+async function loadCatalog(force) {
+  if (S.catalog && !force) { renderCatalog(); return; }
+  $("#catList").innerHTML = `<div class="skeleton"><span class="blk"></span>Loading the Flipper Apps Catalog...</div>`;
+  if (!S.busy) { LCD.play("books", { fps: 4 }); LCD.say("Reading the catalog...", 4000); }
+  const data = await api.catalog(!!force);
+  if (data.error) { $("#catList").innerHTML = `<div class="empty-big"><b>Couldn't load it</b>${esc(data.error)}</div>`; return; }
+  S.catalog = data;
+  if (!S.busy) goIdle(`${data.count} apps to try!`);
+  renderCatalog();
+}
+function renderCatalog() {
+  const data = S.catalog; if (!data) return;
+  const q = $("#search").value.trim().toLowerCase();
+  const cats = ["All", ...new Set(data.apps.map((a) => a.category))];
+  $("#catFilter").innerHTML = cats.map((c) => `<button class="fchip ${S.catFilter === c ? "on" : ""}" data-c="${esc(c)}">${esc(c)}</button>`).join("");
+  $$("#catFilter .fchip").forEach((b) => (b.onclick = () => { S.catFilter = b.dataset.c; renderCatalog(); }));
+  const hits = data.apps.filter((a) => (S.catFilter === "All" || a.category === S.catFilter) &&
+    (!q || (a.name + " " + a.id + " " + a.repo + " " + a.category).toLowerCase().includes(q)));
+  $("#catNote").textContent = `${hits.length} of ${data.count} apps from Flipper's official catalog, built from the exact version Flipper reviewed.`;
+  const list = $("#catList");
+  list.innerHTML = "";
+  hits.slice(0, 150).forEach((a, idx) => {
+    const row = document.createElement("div");
+    row.className = "row"; row.style.animationDelay = Math.min(idx, 12) * 25 + "ms";
+    row.innerHTML = `<div class="app-icon cat">${esc(a.category.slice(0, 2).toUpperCase())}</div>
+      <div style="min-width:0"><div class="row-title">${esc(a.name)}</div><div class="row-sub"><span class="badge fw">${esc(a.category)}</span><span>${esc(a.repo)}</span></div></div>
+      <div class="row-actions"></div>`;
+    const go = document.createElement("button");
+    go.className = "mini primary"; go.textContent = "Build";
+    go.onclick = (e) => { e.stopPropagation(); $("#url").value = a.url; setTab("build"); renderPreview(); build(); };
+    $(".row-actions", row).append(iconBtn("github", "Open its source on GitHub", () => api.open_url(a.url)), go);
+    row.onclick = () => { $("#url").value = a.url; setTab("build"); renderPreview(); toast("Loaded. Press Build"); };
+    row.style.cursor = "pointer";
+    list.appendChild(row);
+  });
+  if (hits.length > 150) list.insertAdjacentHTML("beforeend", `<div class="lib-note" style="text-align:center;padding:8px">Showing 150. Search to narrow it down.</div>`);
+  if (!hits.length) list.innerHTML = `<div class="empty-big"><b>No matches</b>Try another word or category.</div>`;
+  renderIcons(list);
+}
+
+/* ---------- app picker (repos with several apps) ---------- */
+function openPicker(apps) {
+  S.pickApps = apps;
+  S.pickOn = new Set(apps.length <= 6 ? apps.map((a) => a.appid) : []);
+  $("#pickSub").textContent = `This repo has ${apps.length} apps. Pick the ones you want.`;
+  $("#pickSearch").value = "";
+  renderPicker();
+  $("#picker").hidden = false;
+  LCD.say(`${apps.length} apps! Which ones?`); LCD.poke();
+  setTimeout(() => $("#pickSearch").focus(), 50);
+}
+function renderPicker() {
+  const q = $("#pickSearch").value.trim().toLowerCase(), list = $("#pickList");
+  list.innerHTML = "";
+  S.pickApps.filter((a) => !q || (a.name + a.appid + a.category + a.path).toLowerCase().includes(q)).forEach((a) => {
+    const b = document.createElement("button");
+    b.className = "pick" + (S.pickOn.has(a.appid) ? " on" : "");
+    b.innerHTML = `<span class="box">${S.pickOn.has(a.appid) ? pixelIcon("check") : ""}</span>${appIcon(a)}
+      <span style="min-width:0"><div class="pick-name">${esc(a.name)}</div><div class="pick-sub">${esc(a.category)} · ${esc(a.path)}</div></span>`;
+    b.onclick = () => { S.pickOn.has(a.appid) ? S.pickOn.delete(a.appid) : S.pickOn.add(a.appid); renderPicker(); };
+    list.appendChild(b);
+  });
+  const n = S.pickOn.size;
+  $("#pickCount").textContent = `${n} selected`;
+  $("#pickGo").textContent = n ? `Build ${n} app${n > 1 ? "s" : ""}` : "Build";
+  $("#pickGo").disabled = !n;
+  renderIcons(list);
+}
+function closePicker(answer) {
+  $("#picker").hidden = true;
+  api.answer_select(answer);
+  if (answer && answer.length) LCD.say(`Building ${answer.length}...`);
 }
 
 /* ---------- log ---------- */
@@ -451,7 +739,7 @@ let logCount = 0;
 function addLog(line) {
   const body = $("#logBody");
   const div = document.createElement("div");
-  if (line.startsWith("==")) div.className = "h";
+  if (line.startsWith("==") || line.startsWith("####")) div.className = "h";
   else if (line.startsWith("OK ")) div.className = "ok";
   else if (line.startsWith("!!") || /\berror\b/i.test(line)) div.className = "err";
   else if (line.startsWith("$ ")) div.className = "cmd";
@@ -473,13 +761,17 @@ let toastT;
 function toast(msg) {
   const t = $("#toast");
   t.textContent = msg; t.classList.add("on");
-  clearTimeout(toastT); toastT = setTimeout(() => t.classList.remove("on"), 1800);
+  clearTimeout(toastT); toastT = setTimeout(() => t.classList.remove("on"), 2200);
 }
-function callout(msg, kind) {
+function callout(msg, kind, hintList) {
   const c = $("#callout");
   if (!msg) { c.hidden = true; return; }
   c.className = "callout" + (kind ? " " + kind : "");
-  c.textContent = msg; c.hidden = false;
+  c.innerHTML = `<div>${esc(msg)}</div>` + (hintList || []).map((h, i) => `<div class="hint"><b>${esc(h.title)}</b>${esc(h.detail)}` +
+    (h.try && h.try.length ? `<div class="try">${h.try.filter((id) => fwObj(id)).map((id) => `<button data-try="${id}">Try ${esc(fwObj(id).short)}</button>`).join("")}</div>` : "") + `</div>`).join("");
+  $$("button[data-try]", c).forEach((b) => (b.onclick = () => { setFw(b.dataset.try, true); build(); }));
+  c.hidden = false;
+  if (hintList && hintList.length) setTimeout(() => c.scrollIntoView({ block: "nearest", behavior: "smooth" }), 80);
 }
 function confetti() {
   if (matchMedia("(prefers-reduced-motion: reduce)").matches) return;
@@ -516,19 +808,18 @@ async function startJob(kind, call) {
   resetStages();
   setBuildButton(true);
   led("orange", true);
-  $$(".stage")[STAGES.length - 1].className = "stage";
-  if (kind === "send") { setStage("send"); LCD.play("radio", { fps: 4 }); LCD.say("Beaming it over..."); led("blue", true); }
+  if (kind === "send" || kind === "install") { setStage("send"); LCD.play("radio", { fps: 4 }); LCD.say("Beaming it over..."); led("blue", true); }
   if (kind === "sdk") { LCD.play("laptop", { fps: 4 }); LCD.say(`Fetching the ${fwObj().short} SDK...`); }
   const res = await call();
   if (res && res.error) {
     S.busy = null; setBuildButton(false); led(null);
     callout(res.error);
-    $("#inputWrap").classList.add("bad");
-    LCD.play("cry"); LCD.say("Hmm, that link...", 4000);
+    if (kind === "build") $("#inputWrap").classList.add("bad");
+    LCD.play("cry"); LCD.say("Hmm, that didn't work", 4000);
     setTimeout(() => !S.busy && goIdle(), 6000);
+    renderShelf();
   }
 }
-
 function build() {
   if (S.busy) { cancel(); return; }
   const url = $("#url").value.trim();
@@ -537,11 +828,11 @@ function build() {
     LCD.say("Paste a link first!", 3000); LCD.poke();
     return;
   }
-  S.results = [];
-  S.send = $("#send").checked;
+  if (S.after !== "none" && !S.device.connected) toast("No Flipper plugged in: it'll build, then the install step will fail");
+  S.results = []; S.batch = null;
   logCount = 0; $("#logBody").innerHTML = "";
   openLog(false);
-  startJob("build", () => api.build(url, S.fw, S.send));
+  startJob("build", () => api.build(url, S.fw, S.after));
   renderShelf();
 }
 function cancel() {
@@ -562,10 +853,10 @@ function onEvents(batch) {
         if (e.stage === "send") led("blue", true);
         const f = fwObj();
         const say = {
-          fetch: `Fetching ${e.detail ? e.detail.split("/")[1] : "the repo"}...`, scan: "Looking for apps...",
+          fetch: `Fetching ${e.detail ? e.detail.split("/").pop() : "the repo"}...`, scan: "Looking for apps...",
           sdk: `Checking ${f.short} SDK...`, build: "Soldering bits...", send: "Beaming it over...",
         }[e.stage];
-        if (say) LCD.say(say);
+        if (say) LCD.say(S.batch && e.stage === "fetch" ? `App ${S.batch.index} of ${S.batch.total}...` : say);
         break;
       }
       case "progress": {
@@ -574,9 +865,16 @@ function onEvents(batch) {
         if (S.stage === "build") LCD.say(`Compiling ${Math.round(e.value * 100)}%`);
         break;
       }
-      case "result":
-        S.results.push(e.result);
-        renderShelf();
+      case "result": S.results.push(e.result); renderShelf(); break;
+      case "select": openPicker(e.apps); break;
+      case "batch": S.batch = e; S.progress = 0; renderShelf(); break;
+      case "device": onDevice(e.device); break;
+      case "update":
+        $("#updatePill").hidden = false; $("#updateText").textContent = `Update ${e.version}`;
+        $("#updatePill").onclick = () => api.open_url(e.url);
+        break;
+      case "watch":
+        if (!S.busy && S.watch) { toast(`Changed: ${(e.changed || []).join(", ") || "files"}`); LCD.say("You saved! Rebuilding"); build(); }
         break;
       case "finished": finished(e); break;
     }
@@ -585,47 +883,53 @@ function onEvents(batch) {
 }
 
 function finished(e) {
-  const kind = S.busy;
-  S.busy = null;
+  S.busy = null; S.batch = null;
   setBuildButton(false);
-  if (e.fw && e.sdk) { const f = fwObj(e.fw); if (f) f.sdk = e.sdk; renderFirmwares(); }
+  $("#picker").hidden = true;
+  if (e.fw && (e.sdk || e.api)) { const f = fwObj(e.fw); if (f) { if (e.sdk) f.sdk = e.sdk; if (e.api) f.api = e.api; } renderFirmwares(); }
   if (e.recent) S.recent = e.recent;
   if (e.out) S.outDir = e.out;
+  // the install step runs after the result cards were drawn: mark them now
+  if (e.installed && !e.install_error) S.results.forEach((r) => { if (r.ok) r.installed = true; });
+  if (S.tab === "library" || e.rebuild || e.built) loadLibrary();
 
   if (e.cancelled) {
-    led(null); resetStages(); callout("Cancelled.", "info");
+    led(null); resetStages(); callout(e.error && e.error !== "Cancelled." ? e.error : "Cancelled.", "info");
     LCD.play("sleep"); LCD.say("Okay, nap time", 3000);
     setTimeout(() => !S.busy && goIdle(), 5000);
     renderShelf();
     return;
   }
-  if (!e.ok) {
+  if (!e.ok || (e.total && !e.built)) {
     const cur = $$(".stage").find((s) => s.classList.contains("active"));
     if (cur) cur.className = "stage fail";
     paintBar(Math.max(S.progress, .05), "err");
     led("red");
-    callout(e.error || "Something went wrong. The log has the details.");
+    callout(e.error || (e.total > 1 ? "None of the apps built." : "The app failed to build."), null, e.hints);
     LCD.play("cry"); LCD.say("Oh no... it broke");
-    openLog(true);
+    if (!(e.hints && e.hints.length)) openLog(true);
     renderShelf();
     setTimeout(() => { if (!S.busy) { led(null); goIdle(); } }, 14000);
     return;
   }
-  // success
+  // success (maybe partial)
   callout(null);
   if (e.sdk_only || e.send_only) resetStages();
   else { $$(".stage").forEach((s) => (s.className = "stage done okall")); paintBar(1, "ok"); }
   led("green", true);
   $("#lcd").classList.add("flash"); setTimeout(() => $("#lcd").classList.remove("flash"), 600);
-  if (e.sdk_only) {
-    LCD.play("dj", { fps: 5 }); LCD.say(`SDK ${e.sdk} ready!`, 4000); toast("SDK updated");
-  } else if (e.send_only) {
-    LCD.play("dj", { fps: 5 }); LCD.say("Sent! Check your Flipper", 5000); toast("Sent to Flipper");
-  } else {
+  if (e.sdk_only) { LCD.play("dj", { fps: 5 }); LCD.say(`SDK ${e.sdk} ready!`, 4000); toast("SDK updated"); renderCompat(); }
+  else if (e.send_only) { LCD.play("dj", { fps: 5 }); LCD.say(e.installed ? "Installed! Check apps on your Flipper" : "Sent! Check your Flipper", 5000); toast(e.installed ? "Installed on your Flipper" : "Sent to Flipper"); }
+  else {
     const all = e.built === e.total;
     LCD.play("dj", { fps: 5 });
-    LCD.say(all ? `Done! ${e.built} app${e.built > 1 ? "s" : ""} built` : `Built ${e.built} of ${e.total}`, 7000);
-    if (all) confetti(); else led("orange");
+    let msg = all ? `Done! ${e.built} app${e.built > 1 ? "s" : ""} built` : `Built ${e.built} of ${e.total}`;
+    if (e.installed && !e.install_error) msg += " + installed";
+    LCD.say(msg, 7000);
+    if (e.install_error) callout("Built, but installing to the Flipper failed: " + e.install_error, null,
+      [{ title: "Couldn't talk to the Flipper", detail: "Plug it in, unlock it, leave any open app, and close qFlipper (only one program can use the USB port).", try: [] }]);
+    else if (!all && e.hints) callout(`${e.total - e.built} app(s) failed.`, null, e.hints);
+    if (all && !e.install_error) confetti(); else led("orange");
     renderShelf();
   }
   setTimeout(() => { if (!S.busy) { led(null); goIdle(); } }, 12000);
@@ -639,12 +943,18 @@ function press(name) {
   if (name === "left") cycleFw(-1);
   else if (name === "right") cycleFw(1);
   else if (name === "up" || name === "down") openLog(name === "up");
-  else if (name === "ok") build();
-  else if (name === "back") { if (S.busy) cancel(); else { LCD.poke(); LCD.say("Back? I'm right here.", 2500); } }
+  else if (name === "ok") { if (S.tab !== "build") setTab("build"); build(); }
+  else if (name === "back") {
+    if (!$("#picker").hidden) closePicker([]);
+    else if (S.busy) cancel();
+    else { LCD.poke(); LCD.say("Back? I'm right here.", 2500); }
+  }
 }
 
 function bind() {
   $$("[data-dp]").forEach((b) => (b.onclick = () => press(b.dataset.dp)));
+  $$(".tab").forEach((t) => (t.onclick = () => setTab(t.dataset.tab)));
+  $$("#afterSeg button").forEach((b) => (b.onclick = () => setAfter(b.dataset.after, true)));
   $("#buildBtn").onclick = build;
   $("#lcd").onclick = () => { wake(); LCD.poke(); if (!S.busy) LCD.say(TIPS[Math.floor(Math.random() * TIPS.length)], 3000); };
   $("#logHead").onclick = () => openLog();
@@ -652,24 +962,35 @@ function bind() {
   $("#url").addEventListener("keydown", (e) => { if (e.key === "Enter") { e.preventDefault(); build(); } });
   $("#pasteBtn").onclick = async () => {
     const t = await api.clipboard();
-    if (t) { $("#url").value = t; renderPreview(); toast("Pasted"); }
-    else { toast("No GitHub link on the clipboard"); }
+    if (t) { $("#url").value = t; renderPreview(); toast("Pasted"); } else toast("No GitHub link on the clipboard");
   };
-  $("#send").onchange = () => { S.send = $("#send").checked; api.set_prefs(S.fw, S.send);
-    if (S.send && !S.busy) LCD.say("I'll beam it over USB", 3000); };
+  $("#folderBtn").onclick = async () => {
+    const p = await api.pick_folder();
+    if (p) { $("#url").value = p; renderPreview(); toast("Folder picked. Press Build"); }
+  };
   $("#sdkPill").onclick = () => startJob("sdk", () => api.update_sdk(S.fw));
+  $("#devicePill").onclick = () => { api.refresh_device(); toast("Looking for your Flipper..."); };
   $("#repoBtn").onclick = () => api.open_url(S.repoUrl);
+  $("#rebuildAll").onclick = () => startRebuild(null);
+  $("#search").addEventListener("input", () => renderCatalog());
+  $("#catRefresh").onclick = () => { S.catalog = null; loadCatalog(true); };
+  $("#pickSearch").addEventListener("input", renderPicker);
+  $("#pickAll").onclick = () => { S.pickApps.forEach((a) => S.pickOn.add(a.appid)); renderPicker(); };
+  $("#pickNone").onclick = () => { S.pickOn.clear(); renderPicker(); };
+  $("#pickCancel").onclick = () => closePicker([]);
+  $("#pickGo").onclick = () => closePicker([...S.pickOn]);
 
   document.addEventListener("keydown", (e) => {
-    const typing = document.activeElement === $("#url");
+    const typing = ["url", "search", "pickSearch"].includes(document.activeElement && document.activeElement.id);
     if (e.key === "Escape") { press("back"); return; }
-    if (e.ctrlKey && e.key.toLowerCase() === "l") { e.preventDefault(); $("#url").focus(); $("#url").select(); return; }
+    if (!$("#picker").hidden) { if (e.key === "Enter" && S.pickOn.size) closePicker([...S.pickOn]); return; }
+    if (e.ctrlKey && e.key.toLowerCase() === "l") { e.preventDefault(); setTab("build"); $("#url").focus(); $("#url").select(); return; }
+    if (e.ctrlKey && e.key.toLowerCase() === "f") { e.preventDefault(); setTab("discover"); setTimeout(() => $("#search").focus(), 50); return; }
     if (typing) return;
     const map = { ArrowLeft: "left", ArrowRight: "right", ArrowUp: "up", ArrowDown: "down", Enter: "ok" };
     if (map[e.key]) { e.preventDefault(); press(map[e.key]); }
   });
 
-  // drag & drop a link anywhere
   let dragDepth = 0;
   window.addEventListener("dragenter", (e) => { e.preventDefault(); dragDepth++; $("#drop").classList.add("on"); });
   window.addEventListener("dragleave", () => { if (--dragDepth <= 0) { dragDepth = 0; $("#drop").classList.remove("on"); } });
@@ -677,18 +998,17 @@ function bind() {
   window.addEventListener("drop", (e) => {
     e.preventDefault(); dragDepth = 0; $("#drop").classList.remove("on");
     const t = e.dataTransfer.getData("text/uri-list") || e.dataTransfer.getData("text/plain");
-    if (t && t.includes("github.com")) { $("#url").value = t.split("\n")[0].trim(); renderPreview(); LCD.poke(); toast("Link dropped"); }
+    if (t && t.includes("github.com")) { setTab("build"); $("#url").value = t.split("\n")[0].trim(); renderPreview(); LCD.poke(); toast("Link dropped"); }
     else toast("That's not a GitHub link");
   });
 
-  // grab a GitHub link from the clipboard when the window regains focus
   window.addEventListener("focus", async () => {
     wake();
     if (S.busy || $("#url").value.trim()) return;
     const t = await api.clipboard();
     if (t && t !== S.lastClip) { S.lastClip = t; $("#url").value = t; renderPreview(); toast("Link from clipboard"); }
   });
-  window.addEventListener("resize", () => setFw(S.fw, false));
+  window.addEventListener("resize", () => { setFw(S.fw, false); setAfter(S.after, false); moveInk($("#tabInk"), $(".tab.on"), true); });
 }
 
 /* ---------- boot ---------- */
@@ -697,20 +1017,25 @@ async function boot() {
   initBar();
   const lcdReady = LCD.init();
   const info = await api.init();
-  S.fws = info.firmwares; S.fw = info.fw; S.send = info.send; S.recent = info.recent || [];
-  S.repoUrl = info.repo; S.outDir = info.out_dir;
+  S.fws = info.firmwares; S.fw = info.fw; S.after = info.after || "none"; S.autoFw = info.auto_fw !== false;
+  S.recent = info.recent || []; S.repoUrl = info.repo; S.outDir = info.out_dir;
   $("#ver").textContent = "v" + info.version;
-  $("#send").checked = S.send;
+  $("#libCount").textContent = info.library_count || "";
   renderFirmwares();
+  setAfter(S.after, false);
+  moveInk($("#tabInk"), $(".tab.on"), true);
   renderShelf();
   bind();
+  if (info.device) onDevice(info.device);
   if (info.clipboard) { $("#url").value = info.clipboard; S.lastClip = info.clipboard; }
   await lcdReady;
-  // power-on: backlight fades up, dolphin wakes up
   LCD.play("wake", { fps: 6, loop: false, onEnd: () => goIdle(info.clipboard ? "Got your link! Press OK" : "Hi! Paste a GitHub link") });
   await sleep(150);
   document.body.classList.remove("booting");
   if (info.clipboard) setTimeout(renderPreview, 1800);
+  // fonts settle after first paint; re-measure the sliding indicators
+  setTimeout(() => { setFw(S.fw, false); setAfter(S.after, false); moveInk($("#tabInk"), $(".tab.on"), true); }, 400);
+  api.start_background();
 }
 
 window.fb = { onEvents, LCD, S };

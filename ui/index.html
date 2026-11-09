@@ -13,8 +13,12 @@
     <img class="brand-icon" src="icon.png" alt="">
     <h1>Flipper Builder</h1>
     <span class="ver" id="ver">v1</span>
+    <button class="pill update" id="updatePill" hidden title="A new version is out"><i data-icon="tri-up"></i><span id="updateText">Update</span></button>
   </div>
   <div class="top-actions">
+    <button class="pill device-pill" id="devicePill" title="Your Flipper over USB. Click to check again.">
+      <span class="dev-dot"></span><span id="deviceText">No Flipper</span>
+    </button>
     <button class="pill" id="sdkPill" title="SDK for the selected firmware. Click to update it now.">
       <i data-icon="refresh"></i><span id="sdkPillText">SDK</span>
     </button>
@@ -50,48 +54,88 @@
     </div>
   </section>
 
-  <!-- right: controls -->
+  <!-- right: tabs -->
   <section class="panel">
-    <div class="field">
-      <label class="lbl" for="url">GitHub link</label>
-      <div class="input-wrap" id="inputWrap">
-        <i data-icon="github" class="in-icon"></i>
-        <input id="url" type="text" spellcheck="false" autocomplete="off"
-               placeholder="github.com/owner/repo  or  .../tree/branch/app_folder">
-        <button class="mini" id="pasteBtn" title="Paste from clipboard"><i data-icon="paste"></i>Paste</button>
+    <nav class="tabs" id="tabs">
+      <button class="tab on" data-tab="build"><i data-icon="terminal"></i>Build</button>
+      <button class="tab" data-tab="library"><i data-icon="folder"></i>Library<span class="count" id="libCount"></span></button>
+      <button class="tab" data-tab="discover"><i data-icon="search"></i>Discover</button>
+      <span class="tab-ink" id="tabInk"></span>
+    </nav>
+
+    <div class="panes">
+      <!-- BUILD -->
+      <div class="pane on" data-pane="build">
+        <div class="field">
+          <label class="lbl" for="url">GitHub link or local folder</label>
+          <div class="input-wrap" id="inputWrap">
+            <i data-icon="github" class="in-icon" id="inIcon"></i>
+            <input id="url" type="text" spellcheck="false" autocomplete="off"
+                   placeholder="github.com/owner/repo/tree/branch/app   or   C:\code\my_app">
+            <button class="mini" id="folderBtn" title="Build an app from a folder on this PC"><i data-icon="folder"></i>Folder</button>
+            <button class="mini" id="pasteBtn" title="Paste from clipboard"><i data-icon="paste"></i>Paste</button>
+          </div>
+          <div class="link-preview" id="preview"></div>
+        </div>
+
+        <div class="field">
+          <span class="lbl">My Flipper runs</span>
+          <div class="fw-row" id="fwRow"><span class="fw-indicator" id="fwIndicator"></span></div>
+          <div class="compat" id="compat"></div>
+        </div>
+
+        <div class="field">
+          <span class="lbl">After building</span>
+          <div class="seg" id="afterSeg">
+            <span class="seg-ink" id="afterInk"></span>
+            <button data-after="none">Just build</button>
+            <button data-after="install" title="Copy the .fap to the Flipper's SD card over USB">Install to SD</button>
+            <button data-after="open" title="Copy it and open it on the Flipper right away">Install &amp; open</button>
+          </div>
+        </div>
+
+        <button class="build" id="buildBtn"><span class="build-label" id="buildLabel">Build .fap</span></button>
+
+        <div class="stages" id="stages">
+          <div class="stage" data-stage="fetch"><span class="dot"></span>Fetch</div>
+          <div class="stage" data-stage="scan"><span class="dot"></span>Scan</div>
+          <div class="stage" data-stage="sdk"><span class="dot"></span>SDK</div>
+          <div class="stage" data-stage="build"><span class="dot"></span>Build</div>
+          <div class="stage" data-stage="done"><span class="dot"></span>Done</div>
+        </div>
+        <div class="bar" id="bar"></div>
+        <div class="callout" id="callout" hidden></div>
+
+        <div class="shelf" id="shelf">
+          <div class="shelf-head">
+            <span class="lbl" id="shelfTitle">Recent</span>
+            <span class="shelf-actions" id="shelfActions"></span>
+          </div>
+          <div class="shelf-body" id="shelfBody"></div>
+        </div>
       </div>
-      <div class="link-preview" id="preview"></div>
-    </div>
 
-    <div class="field">
-      <span class="lbl">My Flipper runs</span>
-      <div class="fw-row" id="fwRow"><span class="fw-indicator" id="fwIndicator"></span></div>
-    </div>
-
-    <label class="toggle" for="send">
-      <input type="checkbox" id="send">
-      <span class="switch"><span class="knob"></span></span>
-      <span class="toggle-text">Send to Flipper over USB after building<small>close qFlipper first</small></span>
-    </label>
-
-    <button class="build" id="buildBtn"><span class="build-label" id="buildLabel">Build .fap</span></button>
-
-    <div class="stages" id="stages">
-      <div class="stage" data-stage="fetch"><span class="dot"></span>Fetch</div>
-      <div class="stage" data-stage="scan"><span class="dot"></span>Scan</div>
-      <div class="stage" data-stage="sdk"><span class="dot"></span>SDK</div>
-      <div class="stage" data-stage="build"><span class="dot"></span>Build</div>
-      <div class="stage" data-stage="done"><span class="dot"></span>Done</div>
-    </div>
-    <div class="bar" id="bar"></div>
-    <div class="callout" id="callout" hidden></div>
-
-    <div class="shelf" id="shelf">
-      <div class="shelf-head">
-        <span class="lbl" id="shelfTitle">Recent</span>
-        <span class="shelf-actions" id="shelfActions"></span>
+      <!-- LIBRARY -->
+      <div class="pane" data-pane="library">
+        <div class="pane-head">
+          <div class="lib-filter" id="libFilter"></div>
+          <button class="mini primary" id="rebuildAll" title="Rebuild these apps for the firmware selected on the Build tab"><i data-icon="refresh"></i><span id="rebuildLabel">Rebuild all</span></button>
+        </div>
+        <div class="lib-note" id="libNote"></div>
+        <div class="list" id="libList"></div>
       </div>
-      <div class="shelf-body" id="shelfBody"></div>
+
+      <!-- DISCOVER -->
+      <div class="pane" data-pane="discover">
+        <div class="input-wrap small">
+          <i data-icon="search" class="in-icon"></i>
+          <input id="search" type="text" spellcheck="false" autocomplete="off" placeholder="Search the official Flipper Apps Catalog">
+          <button class="mini" id="catRefresh" title="Re-download the catalog index"><i data-icon="refresh"></i></button>
+        </div>
+        <div class="cat-filter" id="catFilter"></div>
+        <div class="lib-note" id="catNote">Apps from Flipper's official catalog, built from the exact version Flipper reviewed.</div>
+        <div class="list" id="catList"></div>
+      </div>
     </div>
   </section>
 </main>
@@ -104,6 +148,29 @@
   </button>
   <div class="log-body" id="logBody"></div>
 </footer>
+
+<!-- app picker for repos with several apps -->
+<div class="modal" id="picker" hidden>
+  <div class="sheet">
+    <div class="sheet-head">
+      <div>
+        <div class="sheet-title" id="pickTitle">Pick apps to build</div>
+        <div class="sheet-sub" id="pickSub"></div>
+      </div>
+      <div class="input-wrap small grow"><i data-icon="search" class="in-icon"></i><input id="pickSearch" type="text" placeholder="Filter"></div>
+    </div>
+    <div class="pick-tools">
+      <button class="mini" id="pickAll">Select all</button>
+      <button class="mini" id="pickNone">Clear</button>
+      <span class="pick-count" id="pickCount"></span>
+    </div>
+    <div class="pick-list" id="pickList"></div>
+    <div class="sheet-foot">
+      <button class="mini" id="pickCancel">Cancel</button>
+      <button class="mini primary big" id="pickGo">Build</button>
+    </div>
+  </div>
+</div>
 
 <div class="drop" id="drop"><div>Drop the link</div></div>
 <div class="toast" id="toast"></div>
