@@ -1,63 +1,80 @@
 # Flipper Builder
 
-Paste a GitHub link to a Flipper Zero app, press **Build**, get a `.fap`.
+[![Latest release](https://img.shields.io/github/v/release/c3rb3ruszx/flipper-builder?color=ff8200&label=release)](../../releases/latest)
+[![Platform](https://img.shields.io/badge/platform-Windows%2010%20%7C%2011-ff8200)](../../releases/latest)
+[![License](https://img.shields.io/github/license/c3rb3ruszx/flipper-builder?color=ff8200)](LICENSE)
+
+**Paste a GitHub link to a Flipper Zero app, press Build, and it's on your Flipper.**
 
 ![Flipper Builder compiling an app while the dolphin solders](assets/screenshot.png)
 
 A Windows app around [ufbt](https://github.com/flipperdevices/flipperzero-ufbt), Flipper's official
-micro build tool. No command line, no SDK setup: it fetches the right SDK for your firmware, clones the
-repo, finds the app(s), builds them and hands you the `.fap`. The dolphin keeps you company on a
-Flipper-style LCD the whole time: it reads the repo, solders while it compiles, DJs when it's done
-and cries when the build breaks.
+build tool. No command line and no SDK setup: it gets the right SDK for your firmware, fetches the
+code, builds the app and installs it over USB. The dolphin keeps you company on a Flipper-style LCD
+the whole time: it reads the repo, solders while it compiles, DJs when it's done and cries when the
+build breaks.
+
+**[Download the latest release](../../releases/latest)** · [What's new](CHANGELOG.md)
+
+## Quick start
+
+1. Download `FlipperBuilder-win64.zip`, unzip it anywhere, and run `FlipperBuilder.exe`.
+2. Plug in your Flipper (close qFlipper). The app reads its firmware and picks the matching SDK.
+3. Paste a GitHub link to an app, or pick one on the **Discover** tab, and press **Build**.
 
 ## Features
 
-- **Any GitHub link**: a repo, a branch, a subfolder (`/tree/dev/some_app`), a file (`/blob/...`)
-  or a commit. Branch names with slashes are resolved correctly. Drag and drop a link onto the
-  window, or copy one before opening the app and it's pasted in for you.
-- **Every big firmware**: Official, Momentum and Unleashed, each as release or dev build.
-  Pick the one your Flipper runs, or the app will show "API mismatch".
-- **Live progress**: fetch, scan, SDK, build stages, a compile progress bar, and the full log in a
-  slide-up drawer.
-- **Knows your Flipper**: plug it in over USB and the app reads its firmware (Official, Momentum or
-  Unleashed, release or dev) and API version, picks the matching SDK, and warns you before building
-  something that won't run on it.
-- **Install straight to the Flipper**: after building, *Install to SD* copies the `.fap` into
-  `apps/<Category>/` over USB, or *Install & open* also launches it. Close qFlipper first.
-- **See what's on your Flipper**: the *On Flipper* tab lists every app on the SD card with its real
-  name, version and icon (read from each `.fap`'s own manifest), SD card space, and which apps won't
-  open on your firmware. Open any app on the Flipper, remove it, or update it with a newer build from
-  your Library. App info is cached, so only the first look reads the files.
-- **Library + Rebuild all**: every app you build is remembered, with badges for what runs on your
-  Flipper and what's outdated. After a firmware update, one click rebuilds them all for the new
-  firmware (and installs them, if you like).
-- **Discover**: search the 500+ apps in Flipper's official Apps Catalog and build any of them in one
-  click, from the exact version Flipper reviewed.
+### Build
+
+- **Any GitHub link**: a repo, a branch, a subfolder (`/tree/dev/some_app`), a file or a commit.
+  Drag a link onto the window, or copy one before opening the app and it's pasted in for you.
+- **Every big firmware**: Official, Momentum and Unleashed, each as a release or dev build.
 - **Pick the apps you want**: repos with several apps open a checklist with each app's icon.
-- **Errors in plain English**: a failed build tells you why (a function your firmware doesn't have,
-  a missing library, an outdated app) and offers one-click "try another firmware" buttons.
-- **Local folders + watch mode**: build an app from a folder on your PC, and let it rebuild (and
-  reinstall) automatically every time you save. Handy when you write your own apps.
-- **Results you can use**: each built app shows its own icon, size, and the SD card folder it belongs
-  in, with buttons to open the folder, copy the SD path, install or open it on the Flipper.
-- **Recent builds**, and a header notice when a new version of Flipper Builder is out.
-- **Play with it like a Flipper**: the d-pad works. Left/right switches firmware, OK builds, Back
-  cancels, up/down opens the log. Keyboard: arrows, Enter, Esc, Ctrl+L (link), Ctrl+F (search).
-  Poke the dolphin.
-- SDK refreshes itself once a day; **SDK** button in the header forces it (right after a firmware update).
+- **Live progress**: the dolphin, build stages, a compile progress bar, and the full log in a slide-up drawer.
+- **Errors in plain English**: a failed build says why (a function your firmware doesn't have, a
+  missing library, an outdated app) and offers one-click "try another firmware" buttons.
+- **Local folders + watch mode**: build from a folder on your PC and rebuild (and reinstall)
+  automatically on every save. Handy when you write your own apps.
 
-![Flipper plugged in: firmware detected and matched](assets/screenshot-device.png)
+### Your Flipper
 
-![The apps on a Flipper, with their own icons](assets/screenshot-onflipper.png)
+- **Knows your Flipper**: plug it in and the app reads its firmware and API version, selects the
+  matching SDK, and warns you before building something that won't run on it.
+- **Install straight to it**: *Install to SD* copies the `.fap` into `apps/<Category>/`, or
+  *Install & open* also launches it.
+- **See what's on it**: the *On Flipper* tab lists every app on the SD card with its real name,
+  version and icon, plus SD card space and which apps won't open on your firmware. Open, remove or
+  update any of them.
 
-![Build finished](assets/screenshot-done.png)
+### Library & Discover
+
+- **Library + Rebuild all**: every app you build is remembered, with badges for what runs on your
+  Flipper and what's outdated. After a firmware update, one click rebuilds them all (and installs them).
+- **Discover**: search the 500+ apps in Flipper's official Apps Catalog and build any of them in
+  one click, from the exact version Flipper reviewed.
+
+### Little things
+
+- The d-pad works like a Flipper's: left/right switches firmware, OK builds, Back cancels. Keyboard:
+  arrows, Enter, Esc, Ctrl+L (link), Ctrl+F (search). Poke the dolphin.
+- SDKs refresh themselves once a day; the **SDK** button in the header forces it.
+- A notice in the header when a new version of Flipper Builder is out.
+
+## Screenshots
+
+| | |
+|---|---|
+| ![Build finished, with the app's own icon and its SD card folder](assets/screenshot-done.png) | ![The apps on a Flipper, with their own icons](assets/screenshot-onflipper.png) |
+| **Done**: the dolphin DJs, and the app's card shows where it goes on the SD card | **On Flipper**: everything on the SD card, with real names, icons and versions |
+| ![The library of built apps](assets/screenshot-library.png) | ![Discover: the official Flipper Apps Catalog](assets/screenshot-discover.png) |
+| **Library**: every build, per firmware, with Rebuild all | **Discover**: 500+ apps from Flipper's official catalog |
 
 ## Install
 
-Download `FlipperBuilder-win64.zip` from [Releases](../../releases), unzip anywhere, run
-`FlipperBuilder.exe`. Needs Windows 10/11 with Microsoft Edge WebView2 (built into Windows 11).
+Download `FlipperBuilder-win64.zip` from [Releases](../../releases/latest), unzip anywhere and run
+`FlipperBuilder.exe`. Needs Windows 10 or 11 with Microsoft Edge WebView2 (built into Windows 11).
 The first build downloads Flipper's toolchain (a few hundred MB, once). SDKs and built apps are kept
-next to the exe.
+next to the exe. For USB features, close qFlipper: only one program can use the Flipper's USB port.
 
 ## Run from source
 
@@ -66,7 +83,7 @@ Needs Windows and Python 3.10+. Double-click `Flipper Builder.bat`, or:
 ```
 python -m venv .venv
 .venv\Scripts\pip install ufbt pywebview pyserial
-.venv\Scripts\python flipper_builder.py                                                 # GUI
+.venv\Scripts\python flipper_builder.py                                                    # GUI
 .venv\Scripts\python flipper_builder.py <github-url-or-folder> --fw momentum-dev [--send]  # CLI
 ```
 
@@ -91,8 +108,9 @@ change it) and registers a per-user uninstaller. No admin rights needed.
 The window is a WebView2 page (pywebview) talking to the Python build engine. The exe bundles
 ufbt's SDK downloader; compiling runs inside Flipper's own toolchain (`fbtenv.cmd` + SCons, exactly
 what the `ufbt` command does), which ships its own Python, so the exe doesn't need Python installed.
-USB talks to the Flipper with the SDK's own storage client (`scripts/flipper/storage.py`, the code
-fbt uses); a copy ships as `flipper_storage.py` for before any SDK is downloaded. Discover indexes
+USB uses the SDK's own storage client (`scripts/flipper/storage.py`, the code fbt uses); a copy ships
+as `flipper_storage.py` for before any SDK is downloaded. App names, versions and icons come from
+each `.fap`'s `.fapmeta` manifest (`fapmeta.py`). Discover indexes
 [flipper-application-catalog](https://github.com/flipperdevices/flipper-application-catalog) and
 caches it for a week.
 
