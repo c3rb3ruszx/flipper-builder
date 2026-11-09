@@ -19,12 +19,19 @@ cp assets/icon.png ui/icon.png
   --osx-bundle-identifier "io.github.c3rb3ruszx.flipperworkbench" \
   --add-data "$root/assets:assets" \
   --add-data "$root/ui:ui" \
+  --add-data "$root/companion:companion" \
   --collect-all webview \
   --hidden-import gui \
   --hidden-import device \
   --hidden-import catalog \
   --hidden-import capture \
   --hidden-import firmware \
+  --hidden-import irdb \
+  --hidden-import music \
+  --hidden-import anim \
+  --hidden-import assetpacks \
+  --hidden-import sync \
+  --hidden-import PIL.ImageSequence \
   --hidden-import flipper_storage \
   --hidden-import fapmeta \
   --hidden-import serial.tools.list_ports_osx \

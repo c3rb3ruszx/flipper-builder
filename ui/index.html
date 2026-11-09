@@ -136,6 +136,11 @@
 
       <!-- DISCOVER -->
       <div class="pane" data-pane="discover">
+        <div class="seg sub" id="discSeg">
+          <span class="seg-ink" id="discInk"></span>
+          <button data-disc="apps" class="on">Apps</button>
+          <button data-disc="ir">IR remotes</button>
+        </div>
         <div class="input-wrap small">
           <i data-icon="search" class="in-icon"></i>
           <input id="search" type="text" spellcheck="false" autocomplete="off" placeholder="Search the official Flipper Apps Catalog">
@@ -167,6 +172,7 @@
           <button data-sub="files">Files</button>
           <button data-sub="backups">Backups</button>
           <button data-sub="cli">CLI</button>
+          <button data-sub="tools">Tools</button>
         </div>
         <div class="fl-progress" id="flProg" hidden><span class="blk"></span><span id="flProgText"></span><button class="mini" id="flStop">Stop</button></div>
 
@@ -202,6 +208,67 @@
           </label>
           <div class="bk-pick" id="bkPick" hidden></div>
           <div class="list" id="bkList"></div>
+        </div>
+
+        <div class="sub-pane" id="subTools" hidden>
+          <div class="tools" id="toolsBody">
+            <details class="tool" open data-tool="music">
+              <summary><b>Music</b><span>MIDI and ringtones for the Flipper's Music Player</span></summary>
+              <div class="tool-body">
+                <div class="tool-row"><button class="mini" id="muPick"><i data-icon="folder"></i>Pick a MIDI or ringtone file</button><span class="tool-or">or paste an RTTTL ringtone:</span></div>
+                <textarea id="muText" spellcheck="false" placeholder="Nokia:d=4,o=5,b=180:8e6,8d6,f#,g#,8c#6,8b,d,e,8b,8a,c#,e,2a"></textarea>
+                <div class="tool-row"><button class="mini" id="muConvert">Convert</button><span class="tool-status" id="muStatus"></span></div>
+                <div class="tool-row" id="muResult" hidden>
+                  <button class="mini" id="muPlay"><i data-icon="play"></i>Play</button>
+                  <input id="muName" type="text" maxlength="40" spellcheck="false">
+                  <button class="mini primary" id="muSave">Save to Flipper</button>
+                </div>
+              </div>
+            </details>
+            <details class="tool" data-tool="anim">
+              <summary><b>Animation maker</b><span>Turn a GIF or picture into a desktop animation</span></summary>
+              <div class="tool-body">
+                <div class="tool-row"><button class="mini" id="anPick"><i data-icon="folder"></i>Pick a GIF or image</button><span class="tool-status" id="anStatus"></span></div>
+                <div class="anim-wrap" id="anWrap" hidden>
+                  <div class="anim-lcd"><canvas id="anCanvas" width="128" height="64"></canvas></div>
+                  <div class="anim-opts">
+                    <label>Fit <select id="anFit"><option value="contain">Whole picture</option><option value="cover">Fill the screen</option></select></label>
+                    <label>Dither <select id="anDither"><option value="floyd">Smooth (Floyd-Steinberg)</option><option value="bayer">Pattern (Bayer)</option><option value="threshold">None (black and white)</option></select></label>
+                    <label>Brightness <input type="range" id="anThr" min="40" max="220" value="128"></label>
+                    <label>Contrast <input type="range" id="anCon" min="5" max="25" value="10"></label>
+                    <label>Speed <select id="anFps"><option value="">From the GIF</option><option>1</option><option>2</option><option>4</option><option>6</option><option>8</option><option>10</option></select></label>
+                    <label class="chk"><input type="checkbox" id="anInv"> Invert</label>
+                  </div>
+                </div>
+                <div class="tool-row" id="anSaveRow" hidden>
+                  <input id="anName" type="text" maxlength="40" spellcheck="false">
+                  <label>How often <select id="anWeight"><option value="1">Rarely</option><option value="3" selected>Normal</option><option value="8">Often</option><option value="20">Mostly this</option></select></label>
+                  <button class="mini primary" id="anInstall">Install to Flipper</button>
+                </div>
+                <div class="vw-note" id="anNote"></div>
+                <div class="vw-btns" id="anMade"></div>
+              </div>
+            </details>
+            <details class="tool" data-tool="packs">
+              <summary><b>Asset packs</b><span>Animations and icons from Momentum's pack library</span></summary>
+              <div class="tool-body"><div class="vw-note" id="pkNote"></div><div class="pack-grid" id="pkGrid"></div></div>
+            </details>
+            <details class="tool" data-tool="sync">
+              <summary><b>Folder sync</b><span>Keep a PC folder and an SD card folder in step</span></summary>
+              <div class="tool-body">
+                <div class="vw-btns" id="syPairs"></div>
+                <div class="tool-row"><button class="mini" id="syAdd"><i data-icon="folder"></i>Add a folder pair</button></div>
+                <div id="syPlan"></div>
+              </div>
+            </details>
+            <details class="tool" data-tool="companion">
+              <summary><b>Companion app</b><span>A small app on your Flipper that shows what Workbench did</span></summary>
+              <div class="tool-body">
+                <div class="vw-note">Builds the Workbench companion for your Flipper's firmware and installs it to Apps &gt; Tools. Open it on the Flipper to see when you were last connected, backed up and synced.</div>
+                <div class="tool-row"><button class="mini primary" id="coInstall"><i data-icon="download"></i>Build &amp; install</button></div>
+              </div>
+            </details>
+          </div>
         </div>
 
         <div class="sub-pane" id="subCli" hidden>
@@ -276,6 +343,8 @@
         <div class="sheet-sub" id="vwSub"></div>
       </div>
       <div class="vw-actions">
+        <button class="mini primary" id="vwInstall" hidden><i data-icon="download"></i>Install to Flipper</button>
+        <button class="mini" id="vwEditIr" hidden><i data-icon="edit"></i>Edit buttons</button>
         <button class="mini" id="vwEdit" hidden><i data-icon="edit"></i>Edit</button>
         <button class="mini" id="vwDownload"><i data-icon="download"></i>Download</button>
         <button class="icon-btn" id="vwClose" title="Close (Esc)"><i data-icon="cross"></i></button>

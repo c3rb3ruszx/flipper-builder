@@ -67,6 +67,8 @@ repo, solders while it compiles, DJs when it's done and cries when the build bre
 - **Capture viewer**: click a `.sub`, `.ir`, `.nfc`, `.rfid` or `.ibtn` file to see it in plain
   language: Sub-GHz frequency, modulation and the signal itself, every button of an IR remote (with
   *Send* to fire one from the Flipper), an NFC card's type, UID and blocks.
+- **IR remote editing**: rename, reorder and remove the buttons of a remote, or add all the buttons of
+  another remote to it.
 - **Script editor**: write and edit BadUSB scripts and JavaScript apps with syntax highlighting,
   save them straight to the SD card (Ctrl+S), and *Save & run* a JS app with its output in the CLI.
 - **Backups**: one click backs up your captures, NFC/RFID dumps, IR remotes, BadUSB scripts and app
@@ -79,13 +81,34 @@ repo, solders while it compiles, DJs when it's done and cries when the build bre
   Flipper and what's outdated. After a firmware update, one click rebuilds them all (and installs them).
 - **Discover**: search the 500+ apps in Flipper's official Apps Catalog and build any of them in
   one click, from the exact version Flipper reviewed.
+- **IR remote library**: search the 8,900 remotes of the community
+  [Flipper-IRDB](https://github.com/Lucaslhm/Flipper-IRDB) by brand, model or device, try their
+  buttons from your Flipper before you keep one, and install it to `infrared/` in one click.
+
+### Tools
+
+- **Music**: turn a MIDI file or an RTTTL ringtone into a song for the Flipper's Music Player. Hear it
+  in the app first (square wave, like the Flipper's buzzer), then save it to the SD card.
+- **Animation maker**: turn a GIF or picture into a desktop animation for your Flipper: dithered to
+  128x64 with live preview, brightness and contrast, in Flipper's own animation format. On Momentum
+  it goes into a *Workbench* asset pack; on other firmware into `dolphin/`. Remove it with one click.
+- **Asset packs** (Momentum): browse and install the animation and icon packs from Momentum's pack
+  library, checksum-verified.
+- **Folder sync**: pair a PC folder (say, your BadUSB scripts in a Git repo) with an SD card folder and
+  keep them in step one way or both ways. Files are compared by size and MD5, you see every change
+  before it happens, conflicts are yours to settle, and deleting extras is opt-in (PC files go to a
+  `.workbench-trash` folder, never straight away).
+- **Companion app**: builds and installs *Workbench* to your Flipper's Apps > Tools: open it there to
+  see when Workbench last connected, backed up and synced.
 
 ### Little things
 
 - The d-pad works like a Flipper's: left/right switches firmware, OK builds, Back cancels. Keyboard:
   arrows, Enter, Esc, Ctrl+L (link), Ctrl+F (search). Poke the dolphin.
 - SDKs refresh themselves once a day; the **SDK** button in the header forces it.
-- A notice in the header when a new version of Flipper Workbench is out.
+- Updates itself: when a new version is out, one click downloads it, checks it against GitHub's
+  SHA-256 and restarts into it. Your SDKs, built apps, library, settings and backups stay, and if the
+  swap fails the old version is put back.
 
 ## Screenshots
 
@@ -107,7 +130,13 @@ repo, solders while it compiles, DJs when it's done and cries when the build bre
 
 ## Install
 
-Download `FlipperWorkbench-win64.zip` from [Releases](../../releases/latest), unzip anywhere and run
+With [Scoop](https://scoop.sh):
+
+```
+scoop install https://raw.githubusercontent.com/c3rb3ruszx/flipper-workbench/main/packaging/scoop/flipper-workbench.json
+```
+
+Or download `FlipperWorkbench-win64.zip` from [Releases](../../releases/latest), unzip anywhere and run
 `FlipperWorkbench.exe`. Needs Windows 10 or 11 with Microsoft Edge WebView2 (built into Windows 11).
 The first build downloads Flipper's toolchain (a few hundred MB, once). SDKs and built apps are kept
 next to the exe. For USB features, close qFlipper: only one program can use the Flipper's USB port.

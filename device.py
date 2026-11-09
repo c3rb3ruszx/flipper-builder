@@ -294,6 +294,7 @@ def write_file(port, sdk_dirs, path, data):
             fh.write(data)
 
         def fn(mod, st):
+            mod.FlipperStorageOperations(st).mkpath(path.rsplit("/", 1)[0])   # the folder may be new
             st.send_file(tmp_local, tmp_remote)
             if st.size(tmp_remote) != len(data):
                 st.remove(tmp_remote)
@@ -511,6 +512,15 @@ def cleanup_scan(port, sdk_dirs):
 def _check(st, response, path):
     if b"Storage error" in response:
         raise DeviceError(f"{path}: " + response.decode("utf-8", "replace").split(":", 1)[-1].strip())
+
+
+def ensure_dir(port, sdk_dirs, path):
+    """Create a folder (and its parents) if it isn't there yet."""
+    path = _norm(path)
+
+    def fn(mod, st):
+        mod.FlipperStorageOperations(st).mkpath(path)
+    storage_call(port, sdk_dirs, fn)
 
 
 def mkdir(port, sdk_dirs, path):

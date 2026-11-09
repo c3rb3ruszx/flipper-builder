@@ -103,6 +103,90 @@ def _reveal(path):
         pass
 
 
+# ---------------------------------------------------------------- self-update (installed Windows app)
+
+SELF_ZIP = "FlipperWorkbench-win64.zip"
+
+
+def _download_checked(url, sha256, dest, progress=lambda d, t: None):
+    import hashlib
+    dest = Path(dest)
+    dest.parent.mkdir(parents=True, exist_ok=True)
+    h, done = hashlib.sha256(), 0
+    req = urllib.request.Request(url, headers={"User-Agent": "flipper-workbench"})
+    with urllib.request.urlopen(req, timeout=60) as r, open(dest, "wb") as fh:
+        total = int(r.headers.get("Content-Length") or 0)
+        while chunk := r.read(65536):
+            fh.write(chunk)
+            h.update(chunk)
+            done += len(chunk)
+            progress(done, total or done)
+    if h.hexdigest() != sha256.lower():
+        dest.unlink(missing_ok=True)
+        raise ValueError("the download doesn't match GitHub's checksum")
+    return dest
+
+
+def stage_update(zip_path, dest):
+    """Unpack the release zip (safely) and return the folder holding FlipperWorkbench.exe + _internal."""
+    import shutil
+    import zipfile
+    dest = Path(dest)
+    if dest.exists():
+        shutil.rmtree(dest)
+    dest.mkdir(parents=True)
+    with zipfile.ZipFile(zip_path) as z:
+        for n in z.namelist():
+            if n.startswith(("/", "\\")) or ".." in n.replace("\\", "/").split("/"):
+                raise ValueError(f"unsafe path in the update: {n}")
+        z.extractall(dest)
+    exes = list(dest.rglob("FlipperWorkbench.exe"))
+    if len(exes) != 1 or not (exes[0].parent / "_internal").is_dir():
+        raise ValueError("the update zip doesn't look like Flipper Workbench")
+    return exes[0].parent
+
+
+def write_update_helper(staged, app_dir, pid, work):
+    """A .cmd that waits for this process to end, swaps the program files and starts the new version.
+    Only FlipperWorkbench.exe and _internal are replaced; .cache, output, library, settings, backups stay."""
+    staged, app_dir, work = Path(staged).resolve(), Path(app_dir).resolve(), Path(work).resolve()
+    helper = work / "apply_update.cmd"
+    log = work / "apply_update.log"
+    helper.write_text(f"""@echo off
+setlocal
+set "PID={pid}"
+set "NEW={staged}"
+set "APP={app_dir}"
+rem full paths: never pick up other tools of the same name from PATH
+set "SYS=%SystemRoot%\\System32"
+:wait
+"%SYS%\\tasklist.exe" /fi "PID eq %PID%" 2>nul | "%SYS%\\find.exe" "%PID%" >nul && ("%SYS%\\ping.exe" -n 2 127.0.0.1 >nul & goto wait)
+"%SYS%\\ping.exe" -n 2 127.0.0.1 >nul
+rem keep the current version aside until the new one is fully in place
+if exist "%APP%\\_internal.old" rmdir /s /q "%APP%\\_internal.old"
+move "%APP%\\_internal" "%APP%\\_internal.old" >"{log}" || goto failed_early
+copy /y "%APP%\\FlipperWorkbench.exe" "%APP%\\FlipperWorkbench.exe.old" >>"{log}" || goto rollback
+"%SYS%\\robocopy.exe" "%NEW%\\_internal" "%APP%\\_internal" /E /R:10 /W:1 /NFL /NDL /NJH /NJS >>"{log}"
+if errorlevel 8 goto rollback
+copy /y "%NEW%\\FlipperWorkbench.exe" "%APP%\\FlipperWorkbench.exe" >>"{log}" || goto rollback
+rmdir /s /q "%APP%\\_internal.old"
+del /q "%APP%\\FlipperWorkbench.exe.old"
+echo updated >>"{log}"
+start "" "%APP%\\FlipperWorkbench.exe"
+exit /b 0
+:rollback
+echo rolling back >>"{log}"
+if exist "%APP%\\_internal" rmdir /s /q "%APP%\\_internal"
+move "%APP%\\_internal.old" "%APP%\\_internal" >>"{log}"
+if exist "%APP%\\FlipperWorkbench.exe.old" copy /y "%APP%\\FlipperWorkbench.exe.old" "%APP%\\FlipperWorkbench.exe" >>"{log}"
+:failed_early
+echo update failed, old version kept >>"{log}"
+start "" "%APP%\\FlipperWorkbench.exe"
+exit /b 1
+""", encoding="ascii")
+    return helper
+
+
 GIF_BG, GIF_FG = (255, 140, 41), (0, 0, 0)   # Flipper LCD orange, black pixels
 
 
@@ -300,6 +384,57 @@ class Api:
             results, out = fb.build(source, fw, send=(after == "open"), job=job, install=(after == "install"))
             return self._build_payload(results, out, fw, job, source, repo_label)
         return self._run_job(fw, work)
+
+    COMPANION_DIR = "/ext/apps_data/workbench"
+
+    def companion_install(self):
+        """Build the bundled companion app for the Flipper's firmware and install it (Apps > Tools)."""
+        import shutil
+        fw = self._device.get("fw")
+        if not self._device.get("connected") or fw not in fb.FIRMWARES:
+            return {"error": "Plug in your Flipper first (its firmware decides how the app is built)."}
+        src = fb.BUNDLE / "companion" / "workbench_companion"
+        if not src.is_dir():
+            src = Path(__file__).resolve().parent / "companion" / "workbench_companion"
+        work_src = fb.ROOT / ".cache" / "companion" / "workbench_companion"   # builds write next to the source
+
+        def work(job):
+            import device
+            shutil.rmtree(work_src, ignore_errors=True)
+            shutil.copytree(src, work_src)
+            results, out = fb.build(str(work_src), fw, job=job, install=True)
+            try:   # the folder the app reads from, with a first status
+                device.ensure_dir(self._port(), fb.sdk_dirs(), self.COMPANION_DIR)
+                self._write_status()
+            except Exception:  # noqa: BLE001
+                pass
+            return self._build_payload(results, out, fw, job, str(work_src), "Workbench companion")
+        return self._run_job(fw, work)
+
+    def _write_status(self):
+        """If the companion app is set up (its folder exists), tell it what Workbench last did."""
+        import device
+        dev = self._device
+        if not dev.get("connected") or dev.get("error"):
+            return
+        s = fb.load_settings()
+        name = dev.get("name") or "Flipper"
+        fmt = lambda t: time.strftime("%d %b %H:%M", time.localtime(t)) if t else "never"  # noqa: E731
+        label = re.sub(r"[^\w\-]+", "", name) or "Flipper"      # same naming as backup_start
+        backups = sorted(self.BACKUP_DIR.glob(f"{label}_*.zip"),
+                         key=lambda p: p.stat().st_mtime) if self.BACKUP_DIR.is_dir() else []
+        text = (f"Workbench {fb.APP_VERSION} connected\n{fmt(time.time())}\n"
+                f"Last backup: {fmt(backups[-1].stat().st_mtime if backups else 0)}\n"
+                f"Last sync: {fmt(s.get('last_sync', 0))}\n"
+                f"Firmware: {dev.get('fw_name') or '?'}\n")
+
+        def fn(mod, st):
+            if not st.exist_dir(self.COMPANION_DIR):
+                return False
+            return True
+        port = self._port()
+        if device.storage_call(port, fb.sdk_dirs(), fn, seconds=10):
+            device.write_file(port, fb.sdk_dirs(), f"{self.COMPANION_DIR}/status.txt", text.encode("utf-8"))
 
     def answer_select(self, appids):
         self._select_answer = appids  # None = all
@@ -504,6 +639,15 @@ class Api:
                     self._device = {"connected": True, "port": p["port"], "name": p["name"] or "Flipper",
                                     "error": str(e)}
             self._emit("device", device=self._device)
+            if self._device.get("connected") and not self._device.get("error"):
+                def status_later():
+                    time.sleep(8)               # after the UI's own first reads
+                    if not self._job:
+                        try:
+                            self._write_status()
+                        except Exception:  # noqa: BLE001
+                            pass
+                threading.Thread(target=status_later, daemon=True).start()
 
     # ------------------------------------------------ what's on the Flipper
     def _port(self):
@@ -643,6 +787,272 @@ class Api:
         import device
         try:
             return {"path": path, "entries": device.list_dir(self._port(), fb.sdk_dirs(), path)}
+        except (fb.BuildError, device.DeviceError) as e:
+            return {"error": str(e)}
+
+    # ------------------------------------------------ tools: file pickers
+    def _pick(self, file_types=(), folder=False):
+        import webview
+        kind_new = webview.FileDialog.FOLDER if folder else webview.FileDialog.OPEN
+        try:
+            res = self._window.create_file_dialog(kind_new, file_types=file_types) if not folder else \
+                self._window.create_file_dialog(kind_new)
+        except AttributeError:
+            res = self._window.create_file_dialog(webview.FOLDER_DIALOG if folder else webview.OPEN_DIALOG,
+                                                  file_types=file_types)
+        return (res[0] if isinstance(res, (list, tuple)) else res) if res else None
+
+    # ------------------------------------------------ tools: music converter
+    def music_pick(self):
+        p = self._pick(("Ringtones and MIDI (*.mid;*.midi;*.txt;*.rtttl;*.rtx)", "All files (*.*)"))
+        if not p:
+            return {"cancelled": True}
+        return self.music_convert(Path(p).name, None, p)
+
+    def music_convert(self, name, text=None, path=None):
+        import music
+        try:
+            data = Path(path).read_bytes() if path else (text or "")
+            if path and len(data) > 2 * 1024 * 1024:
+                return {"error": "That file is too big for a ringtone or song."}
+            r = music.convert(name or "song.txt", data)
+            r["name"] = re.sub(r"[^\w\- ]+", "", Path(name or r["title"]).stem or r["title"]).strip()[:40] or "Song"
+            return r
+        except Exception as e:  # noqa: BLE001
+            return {"error": str(e)}
+
+    def music_save(self, name, fmf):
+        import device
+        name = re.sub(r"[^\w\- ]+", "", name or "").strip()[:40] or "Song"
+        if not fmf.startswith("Filetype: Flipper Music Format"):
+            return {"error": "Nothing to save."}
+        try:
+            path = f"/ext/music_player/{name}.fmf"
+            port = self._port()
+            device.ensure_dir(port, fb.sdk_dirs(), "/ext/music_player")
+            device.write_file(port, fb.sdk_dirs(), path, fmf.encode("utf-8"))
+            return {"ok": True, "path": path}
+        except (fb.BuildError, device.DeviceError) as e:
+            return {"error": str(e)}
+
+    # ------------------------------------------------ tools: animation maker
+    def anim_pick(self):
+        p = self._pick(("Images and GIFs (*.gif;*.png;*.webp;*.apng;*.jpg;*.jpeg;*.bmp)", "All files (*.*)"))
+        if not p:
+            return {"cancelled": True}
+        if Path(p).stat().st_size > 30 * 1024 * 1024:
+            return {"error": "That file is too big (30 MB max)."}
+        self._anim_src = Path(p)
+        return {"ok": True, "name": Path(p).stem}
+
+    def anim_build(self, opts):
+        """Convert the picked image with these options; returns preview frames (XBM rows, base64)."""
+        import base64
+        import anim
+        src = getattr(self, "_anim_src", None)
+        if not src:
+            return {"error": "Pick a GIF or image first."}
+        try:
+            res = anim.build(src.read_bytes(), opts or {})
+        except Exception as e:  # noqa: BLE001
+            return {"error": f"Couldn't read that image: {e}"}
+        self._anim_res = res
+        return {"fps": res["fps"], "count": len(res["frames"]),
+                "frames": [base64.b64encode(anim.bm_bytes(f)[1:]).decode() for f in res["frames"]]}
+
+    def anim_install(self, name, weight=3):
+        """Momentum: into the 'Workbench' asset pack (pick it on the Flipper). Other firmware: /ext/dolphin
+        plus an entry in its manifest (the original manifest is kept as manifest.txt.bak the first time)."""
+        import tempfile
+        import anim
+        import device
+        res = getattr(self, "_anim_res", None)
+        if not res:
+            return {"error": "Make an animation first."}
+        name = anim.safe_name(name)
+        momentum = (self._device.get("fw") or "").startswith("momentum")
+        base = "/ext/asset_packs/Workbench/Anims" if momentum else "/ext/dolphin"
+        try:
+            port = self._port()
+            with tempfile.TemporaryDirectory(prefix="fw_anim_") as td:
+                folder = anim.write_folder(res, Path(td) / name)
+                device.upload(port, fb.sdk_dirs(), [str(folder)], base)
+                man = f"{base}/manifest.txt"
+                old = None
+                if device.file_exists(port, fb.sdk_dirs(), man):
+                    old = device.read_file(port, fb.sdk_dirs(), man).decode("utf-8", "replace")
+                    if not momentum and not device.file_exists(port, fb.sdk_dirs(), man + ".bak"):
+                        device.write_file(port, fb.sdk_dirs(), man + ".bak", old.encode("utf-8"))
+                new = anim.add_to_manifest(old, name, int(weight))
+                device.write_file(port, fb.sdk_dirs(), man, new.encode("utf-8"))
+            made = fb.load_settings().get("anims_made") or []
+            made = [m for m in made if m.get("name") != name] + [{"name": name, "base": base}]
+            fb.save_settings(anims_made=made)
+            return {"ok": True, "path": f"{base}/{name}", "momentum": momentum}
+        except (fb.BuildError, device.DeviceError) as e:
+            return {"error": str(e)}
+        except Exception as e:  # noqa: BLE001
+            return {"error": f"Couldn't install it: {e}"}
+
+    def anim_list(self):
+        return {"made": fb.load_settings().get("anims_made") or []}
+
+    def anim_remove(self, name):
+        """Remove an animation Workbench made: its folder and its manifest entry."""
+        import anim
+        import device
+        made = fb.load_settings().get("anims_made") or []
+        item = next((m for m in made if m.get("name") == name), None)
+        if not item or item.get("base") not in ("/ext/asset_packs/Workbench/Anims", "/ext/dolphin"):
+            return {"error": "Workbench didn't make that one."}
+        try:
+            port, base = self._port(), item["base"]
+            man = f"{base}/manifest.txt"
+            if device.file_exists(port, fb.sdk_dirs(), man):
+                text = device.read_file(port, fb.sdk_dirs(), man).decode("utf-8", "replace")
+                device.write_file(port, fb.sdk_dirs(), man, anim.remove_from_manifest(text, name).encode("utf-8"))
+            device.remove_tree(port, fb.sdk_dirs(), f"{base}/{name}")
+            left = [m for m in made if m.get("name") != name]
+            fb.save_settings(anims_made=left)
+            if base.startswith("/ext/asset_packs/Workbench") and not any(m.get("base") == base for m in left):
+                device.remove_tree(port, fb.sdk_dirs(), "/ext/asset_packs/Workbench")   # the pack only held ours
+            return {"ok": True}
+        except (fb.BuildError, device.DeviceError) as e:
+            return {"error": str(e)}
+
+    # ------------------------------------------------ tools: Momentum asset packs
+    def packs_list(self, force=False):
+        import assetpacks
+        try:
+            return assetpacks.load(fb.ROOT / ".cache", force=bool(force))
+        except Exception as e:  # noqa: BLE001
+            return {"error": f"Couldn't load the asset packs: {e}"}
+
+    def pack_install(self, pack_id):
+        import assetpacks
+        data = self.packs_list()
+        pack = next((p for p in data.get("packs") or [] if p["id"] == pack_id), None)
+        if not pack:
+            return {"error": "Unknown pack."}
+
+        def work(job):
+            import device
+            job.stage("fetch", pack["name"])
+            try:
+                folders = assetpacks.download(pack, fb.ROOT / ".cache" / "packdl")
+            except Exception as e:  # noqa: BLE001
+                raise fb.BuildError(f"Download failed: {e}")
+            job.log(f"OK {pack['name']}: SHA-256 matches Momentum's directory")
+            job.stage("send", "copying")
+            try:
+                device.upload(self._port(), fb.sdk_dirs(), [str(f) for f in folders], "/ext/asset_packs",
+                              progress=self._fprog("Copying the pack"))
+            except device.DeviceError as e:
+                raise fb.BuildError(str(e))
+            job.log(f"OK Installed to /ext/asset_packs/{', '.join(f.name for f in folders)}")
+            return {"send_only": True, "quiet": True, "pack_done": {"name": pack["name"], "folders": [f.name for f in folders]}}
+        return self._run_job("files", work)
+
+    # ------------------------------------------------ tools: folder sync
+    def sync_pairs(self):
+        return {"pairs": fb.load_settings().get("sync_pairs") or []}
+
+    def sync_pick_local(self):
+        p = self._pick(folder=True)
+        return {"path": p} if p else {"cancelled": True}
+
+    def sync_save_pairs(self, pairs):
+        clean = []
+        for p in pairs or []:
+            if isinstance(p, dict) and p.get("local") and str(p.get("remote", "")).startswith("/ext/"):
+                clean.append({"local": str(p["local"]), "remote": str(p["remote"]).rstrip("/"),
+                              "mode": p.get("mode") if p.get("mode") in ("to_flipper", "to_pc", "both") else "both",
+                              "delete": bool(p.get("delete"))})
+        fb.save_settings(sync_pairs=clean[:20])
+        return {"ok": True}
+
+    def sync_plan(self, local, remote, mode, delete=False):
+        import device
+        import sync
+        if not Path(local).is_dir():
+            return {"error": "That PC folder doesn't exist."}
+        try:
+            diff = sync.compare(self._port(), fb.sdk_dirs(), local, remote)
+        except (fb.BuildError, device.DeviceError) as e:
+            return {"error": str(e)}
+        steps = sync.plan(diff, mode, bool(delete))
+        sizes = {**diff["remote_sizes"], **diff["local_sizes"]}
+        return {"steps": [[a, r, sizes.get(r, 0)] for a, r in steps], "same": len(diff["same"])}
+
+    def sync_run(self, local, remote, steps):
+        import sync
+        steps = [(a, r) for a, r, *_ in steps if a in ("upload", "download", "delete_remote", "delete_local")]
+        if not steps:
+            return {"error": "Nothing to do."}
+
+        def work(job):
+            import device
+            job.stage("send", f"{len(steps)} change(s)")
+            try:
+                n = sync.apply(self._port(), fb.sdk_dirs(), local, remote, steps,
+                               progress=lambda d, t, name: self._emit("fprog", label="Syncing", done=d, total=t, name=name),
+                               should_stop=job.cancelled.is_set)
+            except device.DeviceError as e:
+                raise fb.BuildError(str(e))
+            job.log(f"OK Synced {n} file(s): {local} <-> {remote}")
+            fb.save_settings(last_sync=int(time.time()))
+            return {"send_only": True, "quiet": True, "files_changed": True, "synced": n}
+        return self._run_job("files", work)
+
+    # ------------------------------------------------ IR remote library (Flipper-IRDB)
+    def irdb_index(self, force=False):
+        import irdb
+        try:
+            return irdb.load(fb.ROOT / ".cache", force=bool(force))
+        except Exception as e:  # noqa: BLE001
+            return {"error": f"Couldn't load the IR library: {e}"}
+
+    def irdb_get(self, path):
+        import capture
+        import irdb
+        try:
+            text = irdb.fetch(path)
+        except Exception as e:  # noqa: BLE001
+            return {"error": f"Couldn't download it: {e}"}
+        res = capture.parse(path.rsplit("/", 1)[-1], text, path)
+        res["size"] = len(text.encode("utf-8"))
+        return res
+
+    def irdb_install(self, path):
+        """Copy a library remote to /ext/infrared/<file name>; never overwrites (adds _2, _3...)."""
+        import device
+        import irdb
+        try:
+            text = irdb.fetch(path)
+            port = self._port()
+            name = re.sub(r"[^\w.\-]+", "_", path.rsplit("/", 1)[-1])[:60]
+            stem, ext = name[:-3], ".ir"
+            existing = {e["name"].lower() for e in device.list_dir(port, fb.sdk_dirs(), "/ext/infrared")}
+            n, final = 1, name
+            while final.lower() in existing:
+                n += 1
+                final = f"{stem}_{n}{ext}"
+            device.write_file(port, fb.sdk_dirs(), f"/ext/infrared/{final}", text.encode("utf-8"))
+            return {"ok": True, "path": f"/ext/infrared/{final}"}
+        except (fb.BuildError, device.DeviceError) as e:
+            return {"error": str(e)}
+        except Exception as e:  # noqa: BLE001
+            return {"error": f"Couldn't install it: {e}"}
+
+    def ir_files(self):
+        """Every .ir file in /ext/infrared (one level of folders), for merging remotes."""
+        import device
+        try:
+            port, out = self._port(), []
+            for e in device.list_dir(port, fb.sdk_dirs(), "/ext/infrared"):
+                if not e.get("dir") and e["name"].lower().endswith(".ir"):
+                    out.append(f"/ext/infrared/{e['name']}")
+            return {"files": sorted(out, key=str.lower)}
         except (fb.BuildError, device.DeviceError) as e:
             return {"error": str(e)}
 
@@ -1235,10 +1645,40 @@ class Api:
             with urllib.request.urlopen(req, timeout=15) as r:
                 rel = json.loads(r.read())
             latest = rel.get("tag_name", "")
-            if _vtuple(latest) > _vtuple(fb.APP_VERSION):
-                self._emit("update", version=latest.lstrip("v"), url=rel.get("html_url") or fb.REPO_URL + "/releases")
+            if _vtuple(latest) > _vtuple(os.environ.get("FW_PRETEND_VERSION") or fb.APP_VERSION):
+                asset = next((a for a in rel.get("assets") or [] if a.get("name") == SELF_ZIP), None)
+                digest = (asset or {}).get("digest") or ""
+                self._latest = {"version": latest.lstrip("v"), "url": (asset or {}).get("browser_download_url"),
+                                "sha256": digest.split(":", 1)[1].lower() if digest.startswith("sha256:") else None}
+                can = bool(fb.FROZEN and os.name == "nt" and self._latest["url"] and self._latest["sha256"])
+                self._emit("update", version=latest.lstrip("v"), url=rel.get("html_url") or fb.REPO_URL + "/releases",
+                           can_install=can)
         except Exception:  # noqa: BLE001
             pass
+
+    def self_update(self):
+        """Download the new release, check its SHA-256 (GitHub's digest), unpack it next to this app,
+        then quit; a helper swaps in the new program files (data stays) and restarts the app."""
+        info = getattr(self, "_latest", None)
+        if not info or not info.get("url") or not info.get("sha256"):
+            return {"error": "No update to install."}
+        if not (fb.FROZEN and os.name == "nt"):
+            return {"error": "Self-update works in the installed Windows app; download the release instead."}
+        if self._job:
+            return {"error": "Wait for the current job to finish first."}
+        work = fb.ROOT / ".cache" / "selfupdate"
+        try:
+            zip_path = _download_checked(info["url"], info["sha256"], work / SELF_ZIP,
+                                         lambda d, t: self._emit("fprog", label="Downloading the update", done=d, total=t))
+            staged = stage_update(zip_path, work / "new")
+            helper = write_update_helper(staged, Path(sys.executable).parent, os.getpid(), work)
+        except Exception as e:  # noqa: BLE001
+            return {"error": f"Update failed, nothing was changed: {e}"}
+        subprocess.Popen([os.path.join(os.environ.get("SystemRoot", r"C:\Windows"), "System32", "cmd.exe"), "/d", "/c", str(helper)],
+                         creationflags=0x08000000 | 0x00000200,  # CREATE_NO_WINDOW | CREATE_NEW_PROCESS_GROUP: survives our exit
+                         close_fds=True)
+        threading.Timer(0.8, lambda: self._window and self._window.destroy()).start()
+        return {"ok": True, "version": info["version"]}
 
     def start_background(self):
         for target in (self._device_monitor, self._watcher, self._update_check):

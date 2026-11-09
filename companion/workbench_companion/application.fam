@@ -1,0 +1,13 @@
+App(
+    appid="workbench_companion",
+    name="Workbench",
+    apptype=FlipperAppType.EXTERNAL,
+    entry_point="workbench_companion_app",
+    stack_size=2 * 1024,
+    fap_category="Tools",
+    fap_version="1.0",
+    fap_icon="icon.png",
+    fap_description="Shows when Flipper Workbench (the PC app) last connected, backed up and synced.",
+    fap_author="c3rb3ruszx",
+    fap_weburl="https://github.com/c3rb3ruszx/flipper-workbench",
+)

@@ -2,6 +2,24 @@
 
 Downloads for every version are on the [Releases](../../releases) page.
 
+## 1.8.0
+
+- **Updates itself**: one click downloads the new release, checks it against GitHub's SHA-256 and
+  restarts into it; only the program files change, and a failed swap puts the old version back.
+- **IR remote library**: Discover > IR remotes searches the 8,900 remotes of Flipper-IRDB; preview
+  and try buttons before installing (never overwrites a remote you have).
+- **IR remote editing**: rename, reorder, remove buttons and merge another remote's buttons in.
+- **Tools** (On Flipper > Tools):
+  - *Music*: MIDI and RTTTL ringtones to Music Player songs, with an in-app preview.
+  - *Animation maker*: GIFs and pictures to desktop animations (dithering, brightness, contrast,
+    speed, live preview); Momentum gets a Workbench asset pack, other firmware `dolphin/`.
+  - *Asset packs*: install Momentum's community packs (checksum-verified).
+  - *Folder sync*: PC folder <-> SD card folder, one way or both, MD5-compared, every change shown
+    first, conflicts settled by you, deletions opt-in.
+  - *Companion app*: a small Flipper app (source in `companion/`) built for your firmware, showing
+    what Workbench last did.
+- **Scoop** install from the repo; winget manifests are in `packaging/winget`.
+
 ## 1.7.0
 
 - **Firmware updates**: Official, Momentum and Unleashed, release or dev. Two steps: *Prepare*

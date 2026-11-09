@@ -315,6 +315,17 @@ function mockApi() {
     fw_prepare: async () => { later(1200, [{ type: "finished", ok: true, quiet: true, send_only: true, fw_ready: { remote: "/ext/update/x", family: "Official", version: "1.5.1" } }]); return { ok: true }; },
     fw_discard: async () => ({ ok: true }),
     fw_bundled: async () => ({ apps: ["game_2048.fap"] }),
+    irdb_index: async () => ({ count: 3, items: [["TVs/Samsung/Samsung_TV.ir", 2400], ["ACs/LG/LG_AC.ir", 1800], ["_Converted_/Fans/Dyson.ir", 900]] }),
+    irdb_get: async (p) => mockApi().files_view("x.ir"),
+    irdb_install: async () => ({ ok: true, path: "/ext/infrared/Samsung_TV.ir" }),
+    ir_files: async () => ({ files: ["/ext/infrared/LG.ir"] }),
+    music_convert: async () => ({ title: "Nokia", name: "Nokia", bpm: 180, notes: 13, fmf: "Filetype: Flipper Music Format", preview: [[1318.5, 167], [1174.7, 167], [740, 333]] }),
+    music_pick: async () => ({ cancelled: true }), music_save: async () => ({ ok: true, path: "/ext/music_player/Nokia.fmf" }),
+    anim_list: async () => ({ made: [] }), anim_pick: async () => ({ cancelled: true }),
+    packs_list: async () => ({ packs: [{ id: "a", name: "Akira", author: "Kuronons", anims: 1, icons: 3, previews: [] }] }),
+    sync_pairs: async () => ({ pairs: [{ local: "D:\\badusb", remote: "/ext/badusb", mode: "both", delete: false }] }),
+    sync_save_pairs: async () => ({ ok: true }),
+    sync_plan: async () => ({ same: 4, steps: [["upload", "new.txt", 120], ["download", "fromflipper.txt", 300], ["conflict", "both.txt", 90]] }),
     set_auto_backup: async () => ({ ok: true }),
     record_stop: async () => ({ path: "rec.gif", frames: 40, seconds: 3.2 }),
     cli_stop: async () => { mockApi.cstop = true; return { ok: true }; },
@@ -783,7 +794,62 @@ function startRebuild(keys) {
 }
 
 /* ---------- discover tab ---------- */
+function setDisc(mode) {
+  S.disc = mode;
+  $$("#discSeg button").forEach((b) => b.classList.toggle("on", b.dataset.disc === mode));
+  moveInk($("#discInk"), $(`#discSeg button[data-disc="${mode}"]`), false);
+  $("#search").placeholder = mode === "ir" ? "Search 8,900 IR remotes: brand, model or device" : "Search the official Flipper Apps Catalog";
+  S.catFilter = "All";
+  if (mode === "ir") loadIrdb(); else loadCatalog();
+}
+async function loadIrdb(force) {
+  if (S.irdb && !force) { renderIrdb(); return; }
+  $("#catFilter").innerHTML = "";
+  $("#catList").innerHTML = `<div class="skeleton"><span class="blk"></span>Loading the IR remote library...</div>`;
+  const data = await api.irdb_index(!!force);
+  if (data.error) { $("#catList").innerHTML = `<div class="empty-big"><b>Couldn't load it</b>${esc(data.error)}</div>`; return; }
+  S.irdb = data;
+  if (S.disc === "ir") renderIrdb();
+}
+function irLabel(cat) { return cat === "_Converted_" ? "Converted" : cat.replace(/_/g, " "); }
+function renderIrdb() {
+  const data = S.irdb; if (!data) return;
+  const q = $("#search").value.trim().toLowerCase().split(/\s+/).filter(Boolean);
+  const counts = {};
+  data.items.forEach(([p]) => { const c = p.split("/")[0]; counts[c] = (counts[c] || 0) + 1; });
+  const cats = ["All", ...Object.keys(counts).sort((a, b) => (a === "_Converted_") - (b === "_Converted_") || a.localeCompare(b))];
+  $("#catFilter").innerHTML = cats.map((c) => `<button class="fchip ${S.catFilter === c ? "on" : ""}" data-c="${esc(c)}">${esc(c === "All" ? "All" : irLabel(c))}${c !== "All" ? `<small>${counts[c]}</small>` : ""}</button>`).join("");
+  $$("#catFilter .fchip").forEach((b) => (b.onclick = () => { S.catFilter = b.dataset.c; renderIrdb(); }));
+  const hits = data.items.filter(([p]) => (S.catFilter === "All" || p.startsWith(S.catFilter + "/")) &&
+    (!q.length || q.every((w) => p.toLowerCase().replace(/_/g, " ").includes(w))));
+  $("#catNote").innerHTML = `${hits.length.toLocaleString()} of ${data.count.toLocaleString()} remotes from the community <b>Flipper-IRDB</b>. Open one to see its buttons and try them before installing.`;
+  const list = $("#catList");
+  list.innerHTML = "";
+  hits.slice(0, 150).forEach(([p, size], idx) => {
+    const parts = p.split("/"), file = parts.pop(), brand = parts.slice(1).join(" / ");
+    const row = document.createElement("div");
+    row.className = "row"; row.style.animationDelay = Math.min(idx, 12) * 20 + "ms"; row.style.cursor = "pointer";
+    row.innerHTML = `<div class="app-icon cat">IR</div>
+      <div style="min-width:0"><div class="row-title">${esc(file.replace(/\.ir$/i, "").replace(/_/g, " "))}</div>
+      <div class="row-sub"><span class="badge fw">${esc(irLabel(parts[0]))}</span><span>${esc(brand)} · ${fmtSize(size)}</span></div></div><div class="row-actions"></div>`;
+    const inst = document.createElement("button"); inst.className = "mini primary"; inst.textContent = "Install";
+    inst.onclick = (e) => { e.stopPropagation(); irdbInstall(p); };
+    $(".row-actions", row).append(inst);
+    row.onclick = () => openViewer(p, size, "irdb");
+    list.appendChild(row);
+  });
+  if (hits.length > 150) list.insertAdjacentHTML("beforeend", `<div class="lib-note" style="text-align:center;padding:8px">Showing 150. Add a brand or model to narrow it down.</div>`);
+  if (!hits.length) list.innerHTML = `<div class="empty-big"><b>No matches</b>Try just the brand, or another category.</div>`;
+}
+async function irdbInstall(p) {
+  if (!needDevice()) return;
+  toast("Installing...");
+  const r = await api.irdb_install(p);
+  toast(r.error ? r.error : `Installed: ${r.path}`);
+  if (!r.error && FM.sub === "files" && FM.path === "/ext/infrared") loadFiles(FM.path);
+}
 async function loadCatalog(force) {
+  if (S.disc === "ir") { loadIrdb(force); return; }
   if (S.catalog && !force) { renderCatalog(); return; }
   $("#catList").innerHTML = `<div class="skeleton"><span class="blk"></span>Loading the Flipper Apps Catalog...</div>`;
   if (!S.busy) { LCD.play("books", { fps: 4 }); LCD.say("Reading the catalog...", 4000); }
@@ -794,6 +860,7 @@ async function loadCatalog(force) {
   renderCatalog();
 }
 function renderCatalog() {
+  if (S.disc === "ir") { renderIrdb(); return; }
   const data = S.catalog; if (!data) return;
   const q = $("#search").value.trim().toLowerCase();
   const cats = ["All", ...new Set(data.apps.map((a) => a.category))];
@@ -1129,6 +1196,8 @@ function setSub(name) {
   moveInk($("#flSegInk"), $(`#flSeg button[data-sub="${name}"]`), false);
   $("#subApps").hidden = name !== "apps"; $("#subFiles").hidden = name !== "files"; $("#subBackups").hidden = name !== "backups";
   $("#subCli").hidden = name !== "cli";
+  $("#subTools").hidden = name !== "tools";
+  if (name === "tools") toolsShow();
   if (name === "files") loadFiles(FM.path);
   if (name === "backups") loadBackups();
   if (name === "cli") cliShow();
@@ -1302,24 +1371,27 @@ function vwWave(wave) {
   });
   return c;
 }
-async function openViewer(path, size) {
-  VW.path = path; VW.data = null; VW.isNew = false;
+async function openViewer(path, size, src) {
+  VW.path = path; VW.data = null; VW.isNew = false; VW.src = src || "sd";
+  $("#vwInstall").hidden = true; $("#vwEditIr").hidden = true;
   $("#vwTitle").textContent = path.split("/").pop();
   $("#vwSub").textContent = path;
   $("#vwEdit").hidden = true; $("#vwDownload").hidden = false;
   $("#vwEditor").hidden = true; $("#vwBody").hidden = false;
   $("#vwBody").innerHTML = `<div class="skeleton"><span class="blk"></span>Reading ${esc(path.split("/").pop())}...</div>`;
   $("#viewer").hidden = false;
-  const r = await api.files_view(path, size || 0);
+  const r = VW.src === "irdb" ? await api.irdb_get(path) : await api.files_view(path, size || 0);
   if (VW.path !== path) return;
+  if (VW.src === "irdb") { $("#vwDownload").hidden = true; $("#vwInstall").hidden = !!r.error; $("#vwInstall").onclick = () => irdbInstall(path); }
   VW.data = r;
   const body = $("#vwBody");
   if (r.error) { body.innerHTML = `<div class="vw-empty"><b>Couldn't open it</b><br>${esc(r.error)}</div>`; return; }
   if (r.too_big) { body.innerHTML = `<div class="vw-empty">${fmtSize(r.size)} is too big to show here. Download it instead.</div>`; return; }
   if (r.binary) { body.innerHTML = `<div class="vw-empty">This is a binary file (${fmtSize(r.size)}), not text. Download it to open it on your PC.</div>`; return; }
   $("#vwTitle").textContent = r.title || path.split("/").pop();
-  $("#vwSub").textContent = `${path} · ${fmtSize(r.size)}`;
-  $("#vwEdit").hidden = false;
+  $("#vwSub").textContent = VW.src === "irdb" ? `Flipper-IRDB · ${path}` : `${path} · ${fmtSize(r.size)}`;
+  $("#vwEdit").hidden = VW.src === "irdb";
+  $("#vwEditIr").hidden = !(r.kind === "ir" && VW.src !== "irdb");
   body.innerHTML = vwFields(r.fields || []);
   if (r.note) body.insertAdjacentHTML("beforeend", `<div class="vw-note">${esc(r.note)}</div>`);
   if (r.wave && r.wave.length) { body.insertAdjacentHTML("beforeend", `<div class="vw-sec">Signal</div>`); body.appendChild(vwWave(r.wave)); }
@@ -1346,12 +1418,65 @@ async function openViewer(path, size) {
   if (r.blocks) {
     body.insertAdjacentHTML("beforeend", `<details class="vw-details"><summary>Show all ${r.blocks.length} ${esc(r.blocks[0][0].split(" ")[0].toLowerCase())}s</summary><pre class="vw-raw">${r.blocks.map(([k, v]) => `${esc(k.padEnd(10))} ${esc(v)}`).join("\n")}</pre></details>`);
   }
+  if (r.kind === "ir" && VW.src === "irdb") body.insertAdjacentHTML("afterbegin", `<div class="vw-note">From the community IR library. Try a button with Send (your Flipper must be plugged in), then install it to keep it.</div>`);
   const textKind = ["js", "badusb", "text"].includes(r.kind);
   body.insertAdjacentHTML("beforeend", textKind
     ? `<pre class="vw-raw">${edHighlight(r.text, edKind(path))}</pre>`
     : `<details class="vw-details"><summary>Show the file as text</summary><pre class="vw-raw">${esc(r.text)}</pre></details>`);
   renderIcons(body);
   if (textKind) openEditor();
+}
+/* IR remote editing: rename, reorder, delete, merge buttons from another remote */
+function irSerialize(signals, text) {
+  const ver = (/^Version:\s*(\S+)/m.exec(text || "") || [])[1] || "1";
+  return `Filetype: IR signals file\nVersion: ${ver}\n` + signals.map((s) => "#\n" + s.map(([k, v]) => `${k}: ${v}`).join("\n")).join("\n") + "\n";
+}
+function irName(s) { return (s.find(([k]) => k === "name") || [, ""])[1]; }
+async function openIrEditor() {
+  const r = VW.data; if (!r || !r.signals) return;
+  const sig = r.signals.map((s) => s.map((kv) => [...kv]));
+  $("#vwEditIr").hidden = true; $("#vwEdit").hidden = true;
+  const others = devReady() ? await api.ir_files() : { files: [] };
+  const body = $("#vwBody");
+  const render = () => {
+    body.innerHTML = `<div class="vw-note">Rename, reorder or remove buttons, or add the buttons of another remote. Nothing changes on the Flipper until you save.</div>
+      <div class="vw-btns" id="irRows"></div>
+      <div class="ir-merge"><select id="irMergeSel"><option value="">Add the buttons of another remote...</option>${(others.files || []).filter((f) => f !== VW.path).map((f) => `<option>${esc(f)}</option>`).join("")}</select><button class="mini" id="irMergeGo">Add</button></div>
+      <div class="sheet-foot ed-foot"><span class="ed-status" id="irStatus">${sig.length} buttons</span><button class="mini" id="irCancel">Cancel</button><button class="mini primary" id="irSave">Save to Flipper</button></div>`;
+    sig.forEach((s, i) => {
+      const row = document.createElement("div"); row.className = "ir-edit-row";
+      const d = Object.fromEntries(s);
+      row.innerHTML = `<div style="min-width:0"><input value="${esc(d.name || "")}" maxlength="32" spellcheck="false"><small>${esc(d.type === "raw" ? `raw · ${d.frequency || "?"} Hz` : `${d.protocol || "?"} · ${d.address || ""} · ${d.command || ""}`)}</small></div><div class="acts"></div>`;
+      $("input", row).oninput = (e) => { s.find(([k]) => k === "name")[1] = e.target.value.replace(/[\r\n]/g, " ").trim() || "Button"; };
+      const acts = $(".acts", row);
+      acts.append(iconBtn("tri-up", "Move up", () => { if (i) { [sig[i - 1], sig[i]] = [sig[i], sig[i - 1]]; render(); } }),
+        iconBtn("tri-down", "Move down", () => { if (i < sig.length - 1) { [sig[i + 1], sig[i]] = [sig[i], sig[i + 1]]; render(); } }));
+      const del = iconBtn("trash", "Remove this button", () => { sig.splice(i, 1); render(); }); del.classList.add("danger"); acts.append(del);
+      $("#irRows").appendChild(row);
+    });
+    renderIcons(body);
+    $("#irCancel").onclick = () => openViewer(VW.path, r.size);
+    $("#irMergeGo").onclick = async () => {
+      const f = $("#irMergeSel").value; if (!f) return;
+      const o = await api.files_view(f, 0);
+      if (o.error || !o.signals) { toast(o.error || "That isn't an IR remote"); return; }
+      const names = new Set(sig.map(irName));
+      o.signals.forEach((s) => {
+        const c = s.map((kv) => [...kv]), nm = c.find(([k]) => k === "name");
+        let base = nm[1], n = 2; while (names.has(nm[1])) nm[1] = `${base}_${n++}`;
+        names.add(nm[1]); sig.push(c);
+      });
+      toast(`Added ${o.signals.length} buttons from ${f.split("/").pop()}`); render();
+    };
+    $("#irSave").onclick = async () => {
+      if (!sig.length && !(await confirmDialog("Save an empty remote?", "Every button was removed.", "Save"))) return;
+      $("#irStatus").textContent = "Saving...";
+      const res = await api.files_save(VW.path, irSerialize(sig, r.text));
+      if (res.error) { $("#irStatus").textContent = res.error; return; }
+      toast("Remote saved to the Flipper"); openViewer(VW.path, res.size);
+    };
+  };
+  render();
 }
 function openEditor(initial) {
   const text = initial !== undefined ? initial : (VW.data && VW.data.text) || "";
@@ -1494,6 +1619,139 @@ async function fwReady(info) {
   }
   LCD.say("Updating! Don't unplug me", 8000);
   startJob("firmware", () => api.fw_install(info.remote, info.version));
+}
+/* ---------- tools: music, animation maker, asset packs, folder sync, companion ---------- */
+const TL = { music: null, audio: null, anim: null, animTimer: null };
+function toolsShow() {
+  renderIcons($("#toolsBody"));
+  animListMade(); syRender();
+  if ($('.tool[data-tool="packs"]').open) packsLoad();
+}
+function muStatus(t, err) { $("#muStatus").textContent = t || ""; $("#muStatus").classList.toggle("err", !!err); }
+function muShow(r) {
+  if (r.error) { muStatus(r.error, true); $("#muResult").hidden = true; return; }
+  TL.music = r;
+  muStatus(`${r.title}: ${r.notes} notes at ${r.bpm} BPM${r.truncated ? " (cut to the first 1,500 notes)" : ""}`);
+  $("#muName").value = r.name || r.title; $("#muResult").hidden = false;
+}
+function muPlay() {
+  if (TL.audio) { TL.audio.close(); TL.audio = null; $("#muPlay").innerHTML = `<i data-icon="play"></i>Play`; renderIcons($("#muPlay").parentNode); return; }
+  if (!TL.music) return;
+  const ctx = new AudioContext(); TL.audio = ctx;
+  let t = ctx.currentTime + 0.05;
+  for (const [f, ms] of TL.music.preview) {
+    if (f > 0) {
+      const o = ctx.createOscillator(), g = ctx.createGain();
+      o.type = "square"; o.frequency.value = f; g.gain.value = 0.06;
+      o.connect(g).connect(ctx.destination); o.start(t); o.stop(t + ms / 1000 * 0.92);
+    }
+    t += ms / 1000;
+  }
+  $("#muPlay").textContent = "Stop";
+  setTimeout(() => { if (TL.audio === ctx) muPlay(); }, (t - ctx.currentTime) * 1000 + 200);
+}
+async function animRebuild() {
+  if (!TL.anim) return;
+  $("#anStatus").textContent = "Converting...";
+  const r = await api.anim_build({ fit: $("#anFit").value, dither: $("#anDither").value, threshold: +$("#anThr").value,
+    contrast: +$("#anCon").value / 10, invert: $("#anInv").checked, fps: $("#anFps").value || null });
+  if (r.error) { $("#anStatus").textContent = r.error; return; }
+  TL.anim.frames = r.frames.map((b) => b64bytes(b)); TL.anim.fps = r.fps; TL.anim.i = 0;
+  $("#anStatus").textContent = `${r.count} frame${r.count > 1 ? "s" : ""} at ${r.fps} fps`;
+  $("#anWrap").hidden = false; $("#anSaveRow").hidden = false;
+  clearInterval(TL.animTimer);
+  const draw = () => {
+    const a = TL.anim; if (!a || !a.frames.length) return;
+    const c = $("#anCanvas").getContext("2d"), img = c.createImageData(128, 64), d = a.frames[a.i % a.frames.length];
+    for (let y = 0; y < 64; y++) for (let x = 0; x < 128; x++) {
+      const on = (d[y * 16 + (x >> 3)] >> (x & 7)) & 1, k = (y * 128 + x) * 4;
+      img.data[k + 3] = on ? 255 : 0;
+    }
+    c.putImageData(img, 0, 0); a.i++;
+  };
+  draw(); TL.animTimer = setInterval(draw, 1000 / r.fps);
+}
+async function animListMade() {
+  const r = await api.anim_list(), box = $("#anMade");
+  box.innerHTML = (r.made || []).length ? `<div class="vw-sec">Made with Workbench</div>` : "";
+  (r.made || []).forEach((m) => {
+    const row = document.createElement("div"); row.className = "vw-btn";
+    row.innerHTML = `<b>${esc(m.name)}</b><span>${esc(m.base)}/${esc(m.name)}</span>`;
+    const rm = document.createElement("button"); rm.className = "mini"; rm.textContent = "Remove";
+    rm.onclick = async () => {
+      if (!needDevice() || !(await confirmDialog(`Remove ${m.name}?`, "Its folder and its manifest entry are deleted from the Flipper.", "Remove"))) return;
+      const x = await api.anim_remove(m.name); toast(x.error || "Removed"); animListMade();
+    };
+    row.appendChild(rm); box.appendChild(row);
+  });
+}
+async function packsLoad(force) {
+  const grid = $("#pkGrid");
+  if (!/^momentum/.test(S.device.fw || "")) { $("#pkNote").textContent = "Asset packs are a Momentum feature. Plug in a Flipper running Momentum to install them."; grid.innerHTML = ""; return; }
+  if (TL.packs && !force) return;
+  $("#pkNote").textContent = "Loading Momentum's pack library...";
+  const r = await api.packs_list(!!force);
+  if (r.error) { $("#pkNote").textContent = r.error; return; }
+  TL.packs = r.packs;
+  $("#pkNote").innerHTML = `${r.packs.length} packs. After installing, pick one on your Flipper: <b>Momentum Settings &gt; Interface &gt; Graphics &gt; Asset pack</b>.`;
+  grid.innerHTML = r.packs.map((p) => `<div class="pack">${p.previews[0] ? `<img loading="lazy" src="${esc(p.previews[0])}" alt="">` : ""}
+    <b>${esc(p.name)}</b><small>by ${esc(p.author || "?")} · ${p.anims} anim${p.anims === 1 ? "" : "s"}${p.icons ? ` · ${p.icons} icons` : ""}</small>
+    <button class="mini primary" data-id="${esc(p.id)}">Install</button></div>`).join("");
+  $$(".pack button", grid).forEach((b) => (b.onclick = () => { if (needDevice()) startJob("files", () => api.pack_install(b.dataset.id)); }));
+}
+/* folder sync */
+async function syRender() {
+  const r = await api.sync_pairs(); TL.pairs = r.pairs || [];
+  const box = $("#syPairs"); box.innerHTML = TL.pairs.length ? "" : `<div class="vw-note">No folder pairs yet. Add one, for example your BadUSB scripts folder on the PC and /ext/badusb.</div>`;
+  const MODES = { to_flipper: "PC → Flipper", to_pc: "Flipper → PC", both: "Both ways" };
+  TL.pairs.forEach((p, i) => {
+    const row = document.createElement("div"); row.className = "sy-pair";
+    row.innerHTML = `<div class="paths">${esc(p.local)}<small>⇄ ${esc(p.remote)} · ${MODES[p.mode]}${p.delete ? " · deletes extras" : ""}</small></div><div class="acts"></div>`;
+    const cmp = document.createElement("button"); cmp.className = "mini primary"; cmp.textContent = "Compare";
+    cmp.onclick = () => syCompare(p);
+    const rm = iconBtn("trash", "Forget this pair (no files are touched)", async () => { TL.pairs.splice(i, 1); await api.sync_save_pairs(TL.pairs); syRender(); });
+    $(".acts", row).append(cmp, rm); box.appendChild(row);
+  });
+  renderIcons(box);
+}
+async function syAdd() {
+  const pick = await api.sync_pick_local(); if (!pick.path) return;
+  const remote = await promptDialog("Folder on the Flipper's SD card", "/ext/badusb", "Next");
+  if (!remote) return;
+  if (!/^\/ext\/[^.]/.test(remote) || remote.replace(/\/+$/, "") === "/ext") { toast("Pick a folder inside /ext, not the whole SD card"); return; }
+  const mode = await promptDialog("Which way? Type 1, 2 or 3", "3", "Add") ;
+  const m = { 1: "to_flipper", 2: "to_pc", 3: "both" }[(mode || "3").trim()] || "both";
+  TL.pairs.push({ local: pick.path, remote: remote.replace(/\/+$/, ""), mode: m, delete: false });
+  await api.sync_save_pairs(TL.pairs); syRender();
+}
+async function syCompare(p) {
+  if (!needDevice()) return;
+  const box = $("#syPlan");
+  box.innerHTML = `<div class="skeleton"><span class="blk"></span>Comparing (the Flipper checks each matching file)...</div>`;
+  const r = await api.sync_plan(p.local, p.remote, p.mode, p.delete);
+  if (r.error) { box.innerHTML = `<div class="vw-note" style="color:var(--err)">${esc(r.error)}</div>`; return; }
+  if (!r.steps.length) { box.innerHTML = `<div class="vw-note">Already in step: ${r.same} identical file${r.same === 1 ? "" : "s"}.</div>`; return; }
+  const LBL = { upload: "PC → Flipper", download: "Flipper → PC", delete_remote: "delete on Flipper", delete_local: "delete on PC", conflict: "changed on both" };
+  const steps = r.steps.map((s) => [...s]);
+  const render = () => {
+    box.innerHTML = `<div class="vw-sec">${steps.length} change${steps.length > 1 ? "s" : ""} · ${r.same} already the same</div><div class="sy-steps">` +
+      steps.map(([a, rel, size], i) => `<div class="sy-step"><span class="act ${a}">${LBL[a]}</span><span>${esc(rel)}</span><span>${fmtSize(size)}</span>` +
+        (a === "conflict" || a === "upload" && r.steps[i][0] === "conflict" || a === "download" && r.steps[i][0] === "conflict"
+          ? `<select data-i="${i}"><option value="conflict" ${a === "conflict" ? "selected" : ""}>Skip</option><option value="upload" ${a === "upload" ? "selected" : ""}>Keep PC's</option><option value="download" ${a === "download" ? "selected" : ""}>Keep Flipper's</option></select>` : "<span></span>") + `</div>`).join("") +
+      `</div><div class="sheet-foot ed-foot"><span class="ed-status">${steps.some((s) => s[0].startsWith("delete")) ? "Deleted PC files go to .workbench-trash in that folder." : ""}</span>
+       <button class="mini" id="syCancel">Close</button><button class="mini primary" id="syGo">Sync ${steps.filter((s) => s[0] !== "conflict").length}</button></div>`;
+    $$("select", box).forEach((sel) => (sel.onchange = () => { steps[+sel.dataset.i][0] = sel.value; render(); }));
+    $("#syCancel").onclick = () => { box.innerHTML = ""; };
+    $("#syGo").onclick = async () => {
+      const run = steps.filter((s) => s[0] !== "conflict");
+      if (!run.length) return;
+      const dels = run.filter((s) => s[0].startsWith("delete")).length;
+      if (dels && !(await confirmDialog(`Delete ${dels} file${dels > 1 ? "s" : ""}?`, "Files on the Flipper are deleted for good; files on the PC go to .workbench-trash.", "Sync and delete"))) return;
+      box.innerHTML = "";
+      startJob("files", () => api.sync_run(p.local, p.remote, run));
+    };
+  };
+  render();
 }
 async function fmNewFile() {
   const name = await promptDialog("New file", "script.js", "Create");
@@ -1807,7 +2065,13 @@ function onEvents(batch) {
         break;
       case "update":
         $("#updatePill").hidden = false; $("#updateText").textContent = `Update ${e.version}`;
-        $("#updatePill").onclick = () => api.open_url(e.url);
+        $("#updatePill").onclick = async () => {
+          if (!e.can_install) { api.open_url(e.url); return; }
+          if (!(await confirmDialog(`Update to ${e.version}?`, `I'll download it, check it against GitHub's checksum, then restart into the new version. Your SDKs, built apps, library, settings and backups stay.`, "Update now"))) return;
+          toast("Downloading the update...");
+          const r = await api.self_update();
+          if (r.error) toast(r.error); else { toast(`Restarting into ${r.version}...`); LCD.say("Brb, updating!", 5000); }
+        };
         break;
       case "watch":
         if (!S.busy && S.watch) { toast(`Changed: ${(e.changed || []).join(", ") || "files"}`); LCD.say("You saved! Rebuilding"); build(); }
@@ -1940,6 +2204,27 @@ function bind() {
   $("#vwClose").onclick = closeViewer;
   $("#viewer").addEventListener("mousedown", (e) => { if (e.target.id === "viewer") closeViewer(); });
   $("#vwEdit").onclick = () => openEditor();
+  $("#vwEditIr").onclick = () => openIrEditor();
+  $("#muPick").onclick = async () => muShow(await api.music_pick());
+  $("#muConvert").onclick = async () => { const t = $("#muText").value.trim(); if (!t) { muStatus("Paste a ringtone or pick a file", true); return; } muShow(await api.music_convert("ringtone.txt", t)); };
+  $("#muPlay").onclick = muPlay;
+  $("#muSave").onclick = async () => { if (!needDevice() || !TL.music) return; const r = await api.music_save($("#muName").value, TL.music.fmf); toast(r.error || `Saved: ${r.path}. Open it in the Music Player app.`); };
+  $("#anPick").onclick = async () => { const r = await api.anim_pick(); if (r.error) { toast(r.error); return; } if (!r.ok) return; TL.anim = { frames: [], i: 0 }; $("#anName").value = r.name.replace(/[^A-Za-z0-9_]+/g, "_").slice(0, 40); animRebuild(); };
+  ["#anFit", "#anDither", "#anFps", "#anInv"].forEach((s) => ($(s).onchange = animRebuild));
+  ["#anThr", "#anCon"].forEach((s) => ($(s).onchange = animRebuild));
+  $("#anInstall").onclick = async () => {
+    if (!needDevice()) return;
+    $("#anInstall").disabled = true; toast("Installing the animation...");
+    const r = await api.anim_install($("#anName").value, +$("#anWeight").value);
+    $("#anInstall").disabled = false;
+    if (r.error) { toast(r.error); return; }
+    $("#anNote").innerHTML = r.momentum ? `Installed to the <b>Workbench</b> asset pack. On your Flipper, pick it in <b>Momentum Settings &gt; Interface &gt; Graphics &gt; Asset pack</b> to see it.` : `Installed to /ext/dolphin. It plays among your desktop animations after the Flipper restarts.`;
+    animListMade();
+  };
+  $('.tool[data-tool="packs"]').addEventListener("toggle", (e) => { if (e.target.open) packsLoad(); });
+  $("#syAdd").onclick = syAdd;
+  $("#coInstall").onclick = async () => { if (!needDevice()) return; startJob("install", () => api.companion_install()); };
+  $$("#discSeg button").forEach((b) => (b.onclick = () => setDisc(b.dataset.disc)));
   $("#vwDownload").onclick = () => { const p = VW.path; $("#viewer").hidden = true; startJob("files", () => api.files_download(p)); };
   $("#edCancel").onclick = async () => {
     if (VW.isNew) { closeViewer(); return; }

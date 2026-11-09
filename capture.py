@@ -107,13 +107,16 @@ def parse(name, text, path=""):
         res["note"] = "Replaying Sub-GHz signals is done on the Flipper itself (Sub-GHz app), within your local rules."
 
     elif kind == "ir":
-        signals, cur = [], None
+        signals, cur, raw_signals = [], None, []
         for k, v in pairs:
             if k == "name":
                 cur = {"name": v}
                 signals.append(cur)
+                raw_signals.append([[k, v]])
             elif cur is not None:
                 cur[k] = v
+                raw_signals[-1].append([k, v])
+        res["signals"] = raw_signals          # every field in file order, so an edited remote can be written back
         buttons = []
         for s in signals:
             b = {"name": s.get("name", "?"), "type": s.get("type", "?")}
