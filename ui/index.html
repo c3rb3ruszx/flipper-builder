@@ -49,8 +49,14 @@
       </div>
       <button class="back" data-dp="back" title="Cancel (Esc)"><i data-icon="back"></i></button>
     </div>
-    <div class="legend">
+    <div class="legend" id="legend">
       <span><b>&#9664; &#9654;</b> firmware</span><span><b>OK</b> build</span><span><b>&#8617;</b> cancel</span>
+    </div>
+    <div class="mirror-row">
+      <button class="mirror-btn" id="mirrorBtn" title="Show your Flipper's real screen here and control it with the d-pad and arrow keys">
+        <span class="rec"></span><span id="mirrorLabel">Mirror my Flipper</span>
+      </button>
+      <button class="icon-btn" id="shotBtn" hidden title="Save a screenshot of the Flipper's screen"><i data-icon="camera"></i></button>
     </div>
   </section>
 
@@ -151,13 +157,42 @@
           </div>
         </div>
         <div class="sd" id="flSd" hidden><div class="sd-bar" id="flSdBar"></div><span id="flSdText"></span></div>
-        <div class="fl-progress" id="flProg" hidden><span class="blk"></span><span id="flProgText"></span><button class="mini" id="flStop">Stop</button></div>
-        <div class="input-wrap small">
-          <i data-icon="search" class="in-icon"></i>
-          <input id="flSearch" type="text" spellcheck="false" autocomplete="off" placeholder="Filter apps on your Flipper">
+        <div class="seg sub" id="flSeg">
+          <span class="seg-ink" id="flSegInk"></span>
+          <button data-sub="apps" class="on">Apps</button>
+          <button data-sub="files">Files</button>
+          <button data-sub="backups">Backups</button>
         </div>
-        <div class="cat-filter" id="flFilter"></div>
-        <div class="list" id="flList"></div>
+        <div class="fl-progress" id="flProg" hidden><span class="blk"></span><span id="flProgText"></span><button class="mini" id="flStop">Stop</button></div>
+
+        <div class="sub-pane" id="subApps">
+          <div class="input-wrap small">
+            <i data-icon="search" class="in-icon"></i>
+            <input id="flSearch" type="text" spellcheck="false" autocomplete="off" placeholder="Filter apps on your Flipper">
+          </div>
+          <div class="cat-filter" id="flFilter"></div>
+          <div class="list" id="flList"></div>
+        </div>
+
+        <div class="sub-pane" id="subFiles" hidden>
+          <div class="fm-bar">
+            <button class="icon-btn" id="fmUp" title="Up one folder"><i data-icon="tri-up"></i></button>
+            <div class="crumbs" id="fmCrumbs"></div>
+            <button class="mini" id="fmNew" title="New folder here"><i data-icon="folder"></i>New folder</button>
+            <button class="mini primary" id="fmUpload" title="Copy files from your PC into this folder"><i data-icon="upload"></i>Upload</button>
+            <button class="icon-btn" id="fmRefresh" title="Refresh"><i data-icon="refresh"></i></button>
+          </div>
+          <div class="list" id="fmList"></div>
+        </div>
+
+        <div class="sub-pane" id="subBackups" hidden>
+          <div class="bk-head">
+            <div class="lib-note">Back up your captures, dumps, remotes and app data to a zip on this PC, and put them back later.</div>
+            <button class="mini primary" id="bkNew"><i data-icon="download"></i>New backup</button>
+          </div>
+          <div class="bk-pick" id="bkPick" hidden></div>
+          <div class="list" id="bkList"></div>
+        </div>
       </div>
     </div>
   </section>
@@ -200,6 +235,7 @@
   <div class="sheet small">
     <div class="sheet-title" id="cfTitle">Are you sure?</div>
     <div class="cf-body" id="cfBody"></div>
+    <div class="input-wrap small" id="cfInputWrap" hidden><input id="cfInput" type="text" spellcheck="false" autocomplete="off"></div>
     <div class="sheet-foot">
       <button class="mini" id="cfNo">Cancel</button>
       <button class="mini primary big danger" id="cfYes">OK</button>

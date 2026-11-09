@@ -53,7 +53,7 @@ pause
 $key = 'HKCU:\Software\Microsoft\Windows\CurrentVersion\Uninstall\FlipperBuilder'
 New-Item -Force $key | Out-Null
 $size = [int]((Get-ChildItem $Target -Recurse -File | Measure-Object Length -Sum).Sum / 1KB)
-@{ DisplayName = 'Flipper Builder'; DisplayVersion = '1.4.0'; Publisher = 'c3rb3ruszx'
+@{ DisplayName = 'Flipper Builder'; DisplayVersion = '1.5.0'; Publisher = 'c3rb3ruszx'
    DisplayIcon = "$exe,0"; InstallLocation = $Target; UninstallString = "`"$Target\uninstall.cmd`""
 }.GetEnumerator() | ForEach-Object { Set-ItemProperty $key $_.Key $_.Value }
 Set-ItemProperty $key EstimatedSize $size -Type DWord

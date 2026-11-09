@@ -2,6 +2,15 @@
 
 Downloads for every version are on the [Releases](../../releases) page.
 
+## 1.5.0
+
+- **Screen mirror + remote**: the app's LCD shows your Flipper's real screen live; the d-pad and
+  keyboard press its buttons (hold for long press), and a camera button saves screenshots.
+- **Files**: browse the whole SD card, upload, download, rename, make folders and delete (with confirmation).
+- **Backups**: back up chosen SD card folders to a zip on your PC and restore them later. Apps,
+  firmware updates and security keys are left out by default.
+- Sizes over 1 MB show in MB.
+
 ## 1.4.0
 
 - **On Flipper** tab: every app on the Flipper's SD card with its real name, version and icon (read

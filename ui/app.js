@@ -85,8 +85,38 @@ const LCD = {
     this.bubbleUntil = ms ? performance.now() + ms : 0;
   },
 
+  /* live mirror: 1024 bytes = 8 pages x 128 columns, each byte a vertical strip of 8 pixels (bit 0 on top) */
+  live: null, liveOrient: 0, liveImg: null,
+  showLive(bytes, orient) {
+    if (!this.live) this.snapshotForTransition();
+    this.live = bytes; this.liveOrient = orient || 0;
+  },
+  endLive() { if (this.live) { this.snapshotForTransition(); this.live = null; } },
+  snapshotForTransition() {
+    const oc = this.old.getContext("2d");
+    oc.clearRect(0, 0, W, H); oc.drawImage(this.ctx.canvas, 0, 0);
+    this.tStart = performance.now();
+  },
+  drawLive(c) {
+    if (!this.liveImg) this.liveImg = c.createImageData(W, H);
+    const px = this.liveImg.data, d = this.live, flip = this.liveOrient === 1;
+    for (let y = 0; y < H; y++) for (let x = 0; x < W; x++) {
+      const on = (d[(y >> 3) * W + x] >> (y & 7)) & 1;
+      const sx = flip ? W - 1 - x : x, sy = flip ? H - 1 - y : y;
+      const i = (sy * W + sx) * 4;
+      px[i] = px[i + 1] = px[i + 2] = 0; px[i + 3] = on ? 255 : 0;
+    }
+    c.putImageData(this.liveImg, 0, 0);
+  },
+
   tick(t) {
     requestAnimationFrame((tt) => this.tick(tt));
+    if (this.live) {
+      const fc = this.frameCanvas.getContext("2d");
+      this.drawLive(fc);
+      this.compose(t);
+      return;
+    }
     const a = this.anim;
     if (!a) return;
     if (!this.last) this.last = t;
@@ -104,7 +134,11 @@ const LCD = {
     const f = this.frames[Math.min(this.i, this.frames.length - 1)];
     fc.drawImage(this.sheets[this.key], f * a.w, 0, a.w, a.h, 0, H - a.h, a.w, a.h);
     this.drawBubble(fc, t);
+    this.compose(t);
+  },
 
+  /* draw frameCanvas onto the screen, dithering in from the previous picture right after a switch */
+  compose(t) {
     const ctx = this.ctx;
     ctx.clearRect(0, 0, W, H);
     // rAF timestamps can trail performance.now() slightly, so clamp both ends
@@ -243,6 +277,34 @@ function mockApi() {
       meta: { name: prettyFile(a.path.split("/").pop()), version: "1." + i, api: i % 3 ? "87.1" : "85.0", icon: null } }]));
       later(400 * (apps.length + 1), [{ type: "fcheck_done", done: apps.length }]); return { ok: true }; },
     flipper_check_stop: async () => true,
+    mirror_start: async () => {
+      later(400, [{ type: "mirror", state: "live" }]);
+      let f = 0;
+      mockApi.mt = setInterval(() => {             // fake frames: a box bouncing across the screen
+        const d = new Uint8Array(1024), bx = (f * 3) % 112, by = 8 + Math.round(Math.abs(Math.sin(f / 9)) * 40);
+        for (let y = by; y < by + 14; y++) for (let x = bx; x < bx + 14; x++)
+          if (y === by || y === by + 13 || x === bx || x === bx + 13) d[(y >> 3) * 128 + x] |= 1 << (y & 7);
+        for (let x = 0; x < 128; x++) d[7 * 128 + x] |= 0x80;
+        f++; let s = ""; d.forEach((b) => (s += String.fromCharCode(b)));
+        window.fb.onFrame(btoa(s), 0);
+      }, 60);
+      return { ok: true }; },
+    mirror_stop: async () => { clearInterval(mockApi.mt); return { ok: true }; },
+    mirror_press: async () => ({ ok: true }),
+    save_screenshot: async () => ({ path: "C:\\shot.png" }),
+    files_list: async (path) => { await sleep(250); return { path, entries: path === "/ext"
+      ? ["apps", "apps_data", "badusb", "infrared", "nfc", "subghz", "u2f"].map((n) => ({ name: n, dir: true, size: 0 })).concat([{ name: "readme.txt", dir: false, size: 812 }])
+      : [{ name: "captures", dir: true, size: 0 }, { name: "garage.sub", dir: false, size: 2310 }, { name: "tv_off.ir", dir: false, size: 640 }] }; },
+    files_mkdir: async () => ({ ok: true }), files_rename: async () => ({ ok: true }),
+    files_delete: async () => { later(200, [{ type: "stage", stage: "send" }]); later(900, [{ type: "finished", ok: true, quiet: true, send_only: true, files_changed: true }]); return { ok: true }; },
+    files_download: async () => { later(300, [{ type: "fprog", label: "Downloading", done: 4000, total: 9000 }]); later(1200, [{ type: "finished", ok: true, quiet: true, send_only: true }]); return { ok: true }; },
+    files_upload: async () => { later(300, [{ type: "fprog", label: "Uploading", done: 2000, total: 9000 }]); later(1200, [{ type: "finished", ok: true, quiet: true, send_only: true, files_changed: true }]); return { ok: true }; },
+    backup_folders: async () => { await sleep(600); return { folders: [["apps", 8900000], ["apps_data", 120000], ["badusb", 40000], ["infrared", 210000], ["nfc", 88000], ["subghz", 1500000], ["u2f", 2000], ["update", 0]].map(([name, size]) => ({ name, size, files: 3 })) }; },
+    backups_list: async () => ({ dir: "C:\\backups", backups: [{ path: "C:\\b.zip", name: "C3rb3rus_2026-11-09_0930", files: 214, bytes: 1960000, created: Date.now() / 1000 - 7200, device: { fw_name: "Momentum dev" } }] }),
+    backup_start: async () => { for (let i = 1; i <= 5; i++) later(300 * i, [{ type: "fprog", label: "Backing up", done: i * 400000, total: 2000000 }]);
+      later(1900, [{ type: "finished", ok: true, quiet: true, send_only: true, backup_done: { files: 214 } }]); return { ok: true }; },
+    backup_restore: async () => { later(300, [{ type: "fprog", label: "Restoring", done: 900000, total: 2000000 }]); later(1500, [{ type: "finished", ok: true, quiet: true, send_only: true, restored: { files: 214 } }]); return { ok: true }; },
+    backup_delete: async () => ({ ok: true }),
     flipper_open: async () => { await sleep(300); return { ok: true }; },
     flipper_remove: async () => { await sleep(300); return { ok: true }; },
     flipper_update: async () => { later(100, [{ type: "stage", stage: "send" }]); later(1500, [{ type: "finished", ok: true, send_only: true, installed: true, flipper_changed: true }]); return { ok: true }; },
@@ -327,7 +389,7 @@ function setTab(name) {
   moveInk($("#tabInk"), $(`.tab[data-tab="${name}"]`), true);
   if (name === "library") loadLibrary();
   if (name === "discover") loadCatalog();
-  if (name === "flipper" && prev !== "flipper") loadFlipper();
+  if (name === "flipper" && prev !== "flipper") { loadFlipper(); setTimeout(() => setSub(FM.sub), 30); }
   if (prev !== name) wake();
 }
 function moveInk(ink, btn, flat) {
@@ -413,7 +475,11 @@ function onDevice(d) {
   }
   renderCompat();
   if (S.tab === "library") renderLibrary();
-  if (S.tab === "flipper" && (newly || (was.connected && !S.device.connected) || (!was.error && S.device.error))) loadFlipper();
+  if (S.tab === "flipper" && (newly || (was.connected && !S.device.connected) || (!was.error && S.device.error))) {
+    loadFlipper();
+    if (FM.sub === "files") loadFiles("/ext");
+  }
+  if (!S.device.connected && MIR.state !== "off") stopMirror("Flipper unplugged");
 }
 function renderCompat() {
   const c = $("#compat"), d = S.device, f = fwObj();
@@ -531,7 +597,10 @@ function setBuildButton(busy) {
 }
 
 /* ---------- shared bits ---------- */
-function fmtSize(n) { return n > 1024 ? (n / 1024).toFixed(1) + " KB" : n + " B"; }
+function fmtSize(n) {
+  if (n >= 1048576) return (n / 1048576).toFixed(1) + " MB";
+  return n > 1024 ? (n / 1024).toFixed(1) + " KB" : n + " B";
+}
 function appIcon(r, cls = "") {
   if (r.icon) return `<div class="app-icon ${cls}"><img src="${r.icon}" alt=""></div>`;
   return `<div class="app-icon none ${cls}"><i data-icon="usb"></i></div>`;
@@ -760,7 +829,7 @@ async function loadFlipper() {
 }
 function showFlProgress(done, total) {
   const p = $("#flProg");
-  if (done == null) { p.hidden = true; return; }
+  if (done == null || (FM.sub !== "apps" && !S.busy)) { p.hidden = true; return; }
   p.hidden = false;
   // USB reads run at ~110 KB/s; estimate from the apps still missing their info
   const left = (FL.apps || []).filter((a) => !a.meta).reduce((s, a) => s + a.size, 0);
@@ -867,6 +936,7 @@ function confirmDialog(title, html, okLabel) {
     $("#cfTitle").textContent = title;
     $("#cfBody").innerHTML = html;
     $("#cfYes").textContent = okLabel || "OK";
+    $("#cfYes").classList.toggle("danger", /delete|remove/i.test(okLabel || ""));
     $("#confirm").hidden = false;
     const done = (v) => { $("#confirm").hidden = true; $("#cfYes").onclick = $("#cfNo").onclick = null; resolve(v); };
     $("#cfYes").onclick = () => done(true);
@@ -874,6 +944,227 @@ function confirmDialog(title, html, okLabel) {
     confirmDialog.cancel = () => done(false);
     setTimeout(() => $("#cfNo").focus(), 30);
   });
+}
+
+/* ---------- screen mirror + remote ---------- */
+const MIR = { state: "off", held: {}, frame: null };
+function b64bytes(b64) { const s = atob(b64), a = new Uint8Array(s.length); for (let i = 0; i < s.length; i++) a[i] = s.charCodeAt(i); return a; }
+function onFrame(b64, orient) {
+  if (MIR.state === "off") return;
+  MIR.frame = b64bytes(b64);
+  LCD.showLive(MIR.frame, orient);
+}
+async function toggleMirror() {
+  if (MIR.state !== "off") { stopMirror(); return; }
+  if (!S.device.connected || S.device.error) { needDevice(); return; }
+  MIR.state = "starting";
+  $("#mirrorLabel").textContent = "Connecting...";
+  const r = await api.mirror_start();
+  if (r.error) { MIR.state = "off"; $("#mirrorLabel").textContent = "Mirror my Flipper"; toast(r.error); }
+}
+function stopMirror(msg) {
+  MIR.state = "off";
+  api.mirror_stop();
+  Object.values(MIR.held).forEach((h) => { clearTimeout(h.t1); clearInterval(h.t2); });
+  MIR.held = {};
+  document.body.classList.remove("mirroring");
+  $("#mirrorLabel").textContent = "Mirror my Flipper";
+  $("#shotBtn").hidden = true;
+  $("#deviceFw").textContent = fwObj().short;
+  $("#legend").innerHTML = `<span><b>&#9664; &#9654;</b> firmware</span><span><b>OK</b> build</span><span><b>&#8617;</b> cancel</span>`;
+  LCD.endLive();
+  goIdle(msg || "Back to building!");
+}
+function onMirrorState(e) {
+  if (e.state === "live") {
+    MIR.state = "live";
+    document.body.classList.add("mirroring");
+    $("#mirrorLabel").textContent = "Stop mirroring";
+    $("#shotBtn").hidden = false;
+    $("#deviceFw").textContent = "LIVE";
+    $("#legend").innerHTML = `<span><b>d-pad / arrows</b> navigate</span><span><b>OK / Enter</b> select</span><span><b>&#8617; / Backspace</b> back</span><span><b>hold</b> long press</span>`;
+    clearTimeout(S.idleTimer); clearTimeout(S.sleepTimer);
+  } else if (e.state === "paused") {
+    if (MIR.state !== "off") $("#mirrorLabel").textContent = "Paused for USB job...";
+  } else if (e.state === "error") {
+    if (MIR.state !== "off") { toast(e.detail || "Mirror stopped"); stopMirror("Lost the Flipper's screen"); }
+  }
+}
+/* Flipper input: PRESS, then SHORT + RELEASE on a quick tap, or LONG after 500 ms and REPEAT while held */
+function mirrorDown(key) {
+  if (MIR.state !== "live" || MIR.held[key]) return;
+  api.mirror_press(key, "press");
+  const h = MIR.held[key] = { long: false };
+  h.t1 = setTimeout(() => {
+    h.long = true; api.mirror_press(key, "long");
+    h.t2 = setInterval(() => api.mirror_press(key, "repeat"), 180);
+  }, 500);
+}
+function mirrorUp(key) {
+  const h = MIR.held[key];
+  if (!h) return;
+  clearTimeout(h.t1); clearInterval(h.t2);
+  delete MIR.held[key];
+  if (!h.long) api.mirror_press(key, "short");
+  api.mirror_press(key, "release");
+}
+function screenshot() {
+  if (!MIR.frame) return;
+  const scale = 4, c = document.createElement("canvas");
+  c.width = W * scale + 32; c.height = H * scale + 32;
+  const x = c.getContext("2d");
+  x.fillStyle = "#ff8c29"; x.fillRect(0, 0, c.width, c.height);
+  x.fillStyle = "#000";
+  for (let y = 0; y < H; y++) for (let i = 0; i < W; i++)
+    if ((MIR.frame[(y >> 3) * W + i] >> (y & 7)) & 1) x.fillRect(16 + i * scale, 16 + y * scale, scale, scale);
+  api.save_screenshot(c.toDataURL("image/png"));
+  toast("Screenshot saved");
+  $("#lcd").classList.add("flash"); setTimeout(() => $("#lcd").classList.remove("flash"), 500);
+}
+
+/* ---------- on-flipper sub sections: apps / files / backups ---------- */
+const FM = { path: "/ext", entries: null, sub: "apps", bk: null, pick: null };
+function setSub(name) {
+  FM.sub = name;
+  $$("#flSeg button").forEach((b) => b.classList.toggle("on", b.dataset.sub === name));
+  moveInk($("#flSegInk"), $(`#flSeg button[data-sub="${name}"]`), false);
+  $("#subApps").hidden = name !== "apps"; $("#subFiles").hidden = name !== "files"; $("#subBackups").hidden = name !== "backups";
+  if (name === "files") loadFiles(FM.path);
+  if (name === "backups") loadBackups();
+}
+function devReady() { return S.device.connected && !S.device.error; }
+async function loadFiles(path) {
+  FM.path = path;
+  renderCrumbs();
+  if (!devReady()) { $("#fmList").innerHTML = `<div class="empty-big"><b>No Flipper</b>Plug it in to browse its SD card.</div>`; return; }
+  $("#fmList").innerHTML = `<div class="skeleton"><span class="blk"></span>Reading ${esc(path)}...</div>`;
+  const r = await api.files_list(path);
+  if (r.error) { $("#fmList").innerHTML = `<div class="empty-big"><b>Couldn't open it</b>${esc(r.error)}</div>`; return; }
+  FM.entries = r.entries;
+  renderFiles();
+}
+function renderCrumbs() {
+  const parts = FM.path.split("/").filter(Boolean);
+  $("#fmCrumbs").innerHTML = parts.map((p, i) => `<button data-p="/${parts.slice(0, i + 1).join("/")}">${esc(i === 0 ? "SD card" : p)}</button>`).join(`<span class="sep">/</span>`);
+  $$("#fmCrumbs button").forEach((b) => (b.onclick = () => loadFiles(b.dataset.p)));
+  $("#fmUp").disabled = FM.path === "/ext";
+}
+function renderFiles() {
+  const list = $("#fmList");
+  list.innerHTML = "";
+  if (!FM.entries.length) { list.innerHTML = `<div class="empty-big"><b>Empty folder</b>Upload files here, or make a folder.</div>`; return; }
+  FM.entries.forEach((e, idx) => {
+    const p = `${FM.path}/${e.name}`;
+    const row = document.createElement("div");
+    row.className = "row fm"; row.style.animationDelay = Math.min(idx, 14) * 18 + "ms";
+    row.innerHTML = `<div class="app-icon ${e.dir ? "folder" : "file"}"><i data-icon="${e.dir ? "folder" : "file"}"></i></div>
+      <div style="min-width:0"><div class="row-title">${esc(e.name)}</div><div class="row-sub">${e.dir ? "folder" : fmtSize(e.size)}</div></div>
+      <div class="row-actions"></div>`;
+    const acts = $(".row-actions", row);
+    acts.append(
+      iconBtn("download", e.dir ? "Copy this folder to your PC" : "Copy this file to your PC", () => startJob("files", () => api.files_download(p))),
+      iconBtn("edit", "Rename", () => fmRename(e, p)),
+    );
+    const rm = iconBtn("trash", "Delete", () => fmDelete(e, p)); rm.classList.add("danger"); acts.append(rm);
+    if (e.dir) { row.style.cursor = "pointer"; row.onclick = () => loadFiles(p); }
+    list.appendChild(row);
+  });
+  renderIcons(list);
+}
+async function fmRename(e, p) {
+  const name = await promptDialog(`Rename ${e.dir ? "folder" : "file"}`, e.name, "Rename");
+  if (!name || name === e.name) return;
+  if (/[\\/]/.test(name)) { toast("Names can't contain slashes"); return; }
+  const r = await api.files_rename(p, `${FM.path}/${name}`);
+  if (r.error) toast(r.error); else { toast("Renamed"); loadFiles(FM.path); }
+}
+async function fmDelete(e, p) {
+  const yes = await confirmDialog(`Delete ${e.name}?`,
+    `This deletes <code>${esc(p)}</code>${e.dir ? " and <b>everything inside it</b>" : ""} from your Flipper's SD card. It can't be undone. Make a backup first if you're not sure.`, "Delete");
+  if (yes) startJob("files", () => api.files_delete(p));
+}
+async function fmNewFolder() {
+  const name = await promptDialog("New folder", "", "Create");
+  if (!name) return;
+  if (/[\\/]/.test(name)) { toast("Names can't contain slashes"); return; }
+  const r = await api.files_mkdir(`${FM.path}/${name}`);
+  if (r.error) toast(r.error); else loadFiles(FM.path);
+}
+
+const BK_DEFAULT = ["subghz", "nfc", "lfrfid", "infrared", "badusb", "ibutton", "apps_data", "music_player", "wav_player", "subghz_remote"];
+async function loadBackups() {
+  const r = await api.backups_list();
+  FM.bk = r;
+  const list = $("#bkList");
+  list.innerHTML = "";
+  if (!r.backups.length) { list.innerHTML = `<div class="empty-big"><b>No backups yet</b>Make one before a firmware update or an SD card swap.</div>`; return; }
+  r.backups.forEach((b, idx) => {
+    const dev = b.device || {}, row = document.createElement("div");
+    row.className = "row"; row.style.animationDelay = Math.min(idx, 10) * 25 + "ms";
+    row.innerHTML = `<div class="app-icon"><i data-icon="folder"></i></div>
+      <div style="min-width:0"><div class="row-title">${esc(b.name)}</div>
+      <div class="row-sub"><span>${b.files} files · ${fmtSize(b.bytes)} · ${ago(b.created || b.mtime)}</span>${dev.fw_name ? `<span class="badge fw">${esc(dev.fw_name)}</span>` : ""}</div></div>
+      <div class="row-actions"></div>`;
+    const acts = $(".row-actions", row);
+    acts.append(iconBtn("upload", "Restore: copy these files back to the Flipper", () => bkRestore(b)),
+      iconBtn("folder", "Show the zip", () => api.open_folder(b.path)));
+    const rm = iconBtn("trash", "Delete this backup from your PC", async () => {
+      if (await confirmDialog("Delete this backup?", `Deletes <code>${esc(b.name)}.zip</code> from this PC. Your Flipper isn't touched.`, "Delete")) {
+        await api.backup_delete(b.path); loadBackups();
+      }
+    });
+    rm.classList.add("danger"); acts.append(rm);
+    list.appendChild(row);
+  });
+  renderIcons(list);
+}
+async function bkRestore(b) {
+  if (!needDevice()) return;
+  const yes = await confirmDialog(`Restore ${b.name}?`,
+    `Copies ${b.files} files (${fmtSize(b.bytes)}) back to your Flipper's SD card, replacing files with the same name. Nothing else on the SD card is deleted. About ${Math.max(1, Math.round(b.bytes / 110000 / 60))} min.`, "Restore");
+  if (yes) startJob("restore", () => api.backup_restore(b.path));
+}
+async function bkNew() {
+  if (!needDevice()) return;
+  const box = $("#bkPick");
+  box.hidden = false;
+  box.innerHTML = `<div class="skeleton"><span class="blk"></span>Measuring the folders on your SD card...</div>`;
+  const r = await api.backup_folders();
+  if (r.error) { box.innerHTML = `<div class="lib-note">${esc(r.error)}</div>`; return; }
+  // never pre-pick system/rebuildable folders: Windows' own folder, dot-folders, firmware updates, apps, security keys
+  const SKIP = ["System Volume Information", "update", "u2f", "apps", "apps_manifests"];
+  r.folders = r.folders.filter((f) => f.name !== "System Volume Information");
+  FM.pick = new Set(r.folders.filter((f) => !f.file && !f.name.startsWith(".") && !SKIP.includes(f.name) &&
+    (BK_DEFAULT.includes(f.name) || f.size < 1048576)).map((f) => f.name));
+  const render = () => {
+    const chosen = r.folders.filter((f) => FM.pick.has(f.name));
+    const bytes = chosen.reduce((s, f) => s + f.size, 0);
+    box.innerHTML = `<div class="lib-note">Pick what to back up. Apps are left out by default: you can rebuild them from your Library.${r.folders.some((f) => f.name === "u2f") ? " <b>u2f</b> holds your security keys; if you include it, keep the zip private." : ""}</div>
+      <div class="bk-grid">${r.folders.map((f) => `<button class="bk-item ${FM.pick.has(f.name) ? "on" : ""}" data-n="${esc(f.name)}"><span class="box">${FM.pick.has(f.name) ? pixelIcon("check") : ""}</span><span>${esc(f.name)}</span><small>${fmtSize(f.size)}</small></button>`).join("")}</div>
+      <div class="bk-foot"><span>${chosen.length} picked · ${fmtSize(bytes)} · about ${Math.max(1, Math.round(bytes / 110000 / 60))} min</span>
+      <button class="mini" id="bkCancel">Cancel</button><button class="mini primary" id="bkGo" ${chosen.length ? "" : "disabled"}>Start backup</button></div>`;
+    $$(".bk-item", box).forEach((b) => (b.onclick = () => { FM.pick.has(b.dataset.n) ? FM.pick.delete(b.dataset.n) : FM.pick.add(b.dataset.n); render(); }));
+    $("#bkCancel").onclick = () => { box.hidden = true; };
+    $("#bkGo").onclick = () => { box.hidden = true; startJob("backup", () => api.backup_start([...FM.pick])); };
+    renderIcons(box);
+  };
+  render();
+}
+function onFprog(e) {
+  const p = $("#flProg");
+  p.hidden = false;
+  const pct = Math.min(100, Math.round(e.done / Math.max(1, e.total) * 100));
+  const left = Math.max(0, e.total - e.done) / 110000;
+  $("#flProgText").textContent = `${e.label}: ${pct}% · ${fmtSize(e.done)} of ${fmtSize(e.total)}` + (left > 5 ? ` · about ${left > 90 ? Math.round(left / 60) + " min" : Math.round(left) + "s"} left` : "");
+  S.progress = Math.max(S.progress, STAGE_RANGE.send[0] + (e.done / Math.max(1, e.total)) * (1 - STAGE_RANGE.send[0]));
+  if (S.busy) LCD.say(`${e.label} ${pct}%`);
+}
+function promptDialog(title, value, okLabel) {
+  $("#cfInputWrap").hidden = false;
+  $("#cfInput").value = value || "";
+  const p = confirmDialog(title, "", okLabel).then((ok) => { $("#cfInputWrap").hidden = true; return ok ? $("#cfInput").value.trim() : null; });
+  setTimeout(() => { $("#cfInput").focus(); $("#cfInput").select(); }, 40);
+  return p;
 }
 
 /* ---------- app picker (repos with several apps) ---------- */
@@ -984,7 +1275,11 @@ async function startJob(kind, call) {
   resetStages();
   setBuildButton(true);
   led("orange", true);
-  if (kind === "send" || kind === "install") { setStage("send"); LCD.play("radio", { fps: 4 }); LCD.say("Beaming it over..."); led("blue", true); }
+  if (["send", "install", "files", "backup", "restore"].includes(kind)) {
+    setStage("send");
+    if (MIR.state === "off") { LCD.play("radio", { fps: 4 }); LCD.say({ backup: "Backing up...", restore: "Restoring...", files: "Working on files..." }[kind] || "Beaming it over..."); }
+    led("blue", true);
+  }
   if (kind === "sdk") { LCD.play("laptop", { fps: 4 }); LCD.say(`Fetching the ${fwObj().short} SDK...`); }
   const res = await call();
   if (res && res.error) {
@@ -1053,6 +1348,8 @@ function onEvents(batch) {
         if (S.tab === "flipper" && !FL.t) FL.t = setTimeout(() => { FL.t = null; renderFlipper(); }, 350);
         break;
       }
+      case "mirror": onMirrorState(e); break;
+      case "fprog": onFprog(e); break;
       case "fcheck_done":
         FL.checking = false; showFlProgress(null);
         if (e.error) toast(e.error);
@@ -1075,6 +1372,18 @@ function finished(e) {
   S.busy = null; S.batch = null;
   setBuildButton(false);
   $("#picker").hidden = true;
+  if (!FL.checking) $("#flProg").hidden = true;
+  if (e.files_changed && FM.sub === "files" && S.tab === "flipper") loadFiles(FM.path);
+  if (e.backup_done) { loadBackups(); toast(`Backup saved: ${e.backup_done.files} files`); }
+  if (e.restored) toast(`Restored ${e.restored.files} files`);
+  if (e.saved) toast("Saved. Opening the folder"), api.open_folder(e.saved);
+  if (!e.ok && !e.cancelled && S.tab !== "build" && e.error) toast(e.error);
+  if (e.quiet && e.ok) {     // file jobs: small celebration, no confetti or stage reset theatre
+    resetStages(); callout(null); led("green", true);
+    if (MIR.state === "off") { LCD.play("dj", { fps: 5 }); LCD.say(e.backup_done ? "Backup done!" : e.restored ? "All restored!" : "Done!", 4000); }
+    setTimeout(() => { if (!S.busy) { led(null); if (MIR.state === "off") goIdle(); } }, 6000);
+    return;
+  }
   if (e.fw && (e.sdk || e.api)) { const f = fwObj(e.fw); if (f) { if (e.sdk) f.sdk = e.sdk; if (e.api) f.api = e.api; } renderFirmwares(); }
   if (e.recent) S.recent = e.recent;
   if (e.out) S.outDir = e.out;
@@ -1127,6 +1436,7 @@ function finished(e) {
 
 /* ---------- input: keyboard, d-pad, drag & drop, clipboard ---------- */
 function press(name) {
+  if (MIR.state === "live") return;   // while mirroring, the buttons drive the real Flipper (pointer handlers)
   const el = $(`[data-dp="${name}"]`);
   if (el) { el.classList.add("pressed"); setTimeout(() => el.classList.remove("pressed"), 140); }
   wake();
@@ -1143,7 +1453,21 @@ function press(name) {
 }
 
 function bind() {
-  $$("[data-dp]").forEach((b) => (b.onclick = () => press(b.dataset.dp)));
+  $$("[data-dp]").forEach((b) => {
+    b.onclick = () => press(b.dataset.dp);
+    // mirror mode: real press / hold / release on the Flipper
+    b.addEventListener("pointerdown", (ev) => { if (MIR.state === "live") { ev.preventDefault(); b.classList.add("pressed"); mirrorDown(b.dataset.dp); } });
+    const up = () => { if (MIR.held[b.dataset.dp]) { b.classList.remove("pressed"); mirrorUp(b.dataset.dp); } };
+    b.addEventListener("pointerup", up); b.addEventListener("pointerleave", up);
+  });
+  $("#mirrorBtn").onclick = toggleMirror;
+  $("#shotBtn").onclick = screenshot;
+  $$("#flSeg button").forEach((b) => (b.onclick = () => setSub(b.dataset.sub)));
+  $("#fmUp").onclick = () => loadFiles(FM.path.split("/").slice(0, -1).join("/") || "/ext");
+  $("#fmRefresh").onclick = () => loadFiles(FM.path);
+  $("#fmNew").onclick = fmNewFolder;
+  $("#fmUpload").onclick = () => { if (needDevice()) startJob("files", () => api.files_upload(FM.path)); };
+  $("#bkNew").onclick = bkNew;
   $$(".tab").forEach((t) => (t.onclick = () => setTab(t.dataset.tab)));
   $$("#afterSeg button").forEach((b) => (b.onclick = () => setAfter(b.dataset.after, true)));
   $("#buildBtn").onclick = build;
@@ -1167,15 +1491,25 @@ function bind() {
   $("#catRefresh").onclick = () => { S.catalog = null; loadCatalog(true); };
   $("#pickSearch").addEventListener("input", renderPicker);
   $("#flRefresh").onclick = () => { FL.apps = null; loadFlipper(); };
-  $("#flStop").onclick = () => { api.flipper_check_stop(); toast("Stopping after this app"); };
+  $("#flStop").onclick = () => {
+    if (S.busy) cancel(); else { api.flipper_check_stop(); toast("Stopping after this app"); }
+  };
   $("#flSearch").addEventListener("input", () => renderFlipper());
   $("#pickAll").onclick = () => { S.pickApps.forEach((a) => S.pickOn.add(a.appid)); renderPicker(); };
   $("#pickNone").onclick = () => { S.pickOn.clear(); renderPicker(); };
   $("#pickCancel").onclick = () => closePicker([]);
   $("#pickGo").onclick = () => closePicker([...S.pickOn]);
 
+  const MIR_KEYS = { ArrowUp: "up", ArrowDown: "down", ArrowLeft: "left", ArrowRight: "right", Enter: "ok", Backspace: "back", Escape: "back" };
+  document.addEventListener("keyup", (e) => { if (MIR.state === "live" && MIR_KEYS[e.key]) { e.preventDefault(); mirrorUp(MIR_KEYS[e.key]); } });
   document.addEventListener("keydown", (e) => {
-    const typing = ["url", "search", "pickSearch", "flSearch"].includes(document.activeElement && document.activeElement.id);
+    const typing = ["url", "search", "pickSearch", "flSearch", "cfInput"].includes(document.activeElement && document.activeElement.id);
+    if (MIR.state === "live" && !typing && $("#confirm").hidden && MIR_KEYS[e.key]) {
+      e.preventDefault();
+      if (!e.repeat) mirrorDown(MIR_KEYS[e.key]);
+      return;
+    }
+    if (e.key === "Enter" && !$("#confirm").hidden && document.activeElement && document.activeElement.id === "cfInput") { e.preventDefault(); $("#cfYes").click(); return; }
     if (e.key === "Escape") { press("back"); return; }
     if (!$("#confirm").hidden) return;   // the dialog's own buttons handle it
     if (!$("#picker").hidden) { if (e.key === "Enter" && S.pickOn.size) closePicker([...S.pickOn]); return; }
@@ -1203,7 +1537,10 @@ function bind() {
     const t = await api.clipboard();
     if (t && t !== S.lastClip) { S.lastClip = t; $("#url").value = t; renderPreview(); toast("Link from clipboard"); }
   });
-  window.addEventListener("resize", () => { setFw(S.fw, false); setAfter(S.after, false); moveInk($("#tabInk"), $(".tab.on"), true); });
+  window.addEventListener("resize", () => {
+    setFw(S.fw, false); setAfter(S.after, false); moveInk($("#tabInk"), $(".tab.on"), true);
+    moveInk($("#flSegInk"), $(`#flSeg button[data-sub="${FM.sub}"]`), false);
+  });
 }
 
 /* ---------- boot ---------- */
@@ -1233,7 +1570,7 @@ async function boot() {
   api.start_background();
 }
 
-window.fb = { onEvents, LCD, S };
+window.fb = { onEvents, onFrame, LCD, S, MIR, FM };
 let started = false;
 function start(a) { if (started) return; started = true; api = a; boot(); }
 window.addEventListener("pywebviewready", () => start(window.pywebview.api));

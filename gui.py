@@ -558,6 +558,230 @@ class Api:
             return {"send_only": True, "installed": True, "flipper_changed": True, "updated": len(pairs)}
         return self._run_job("install", work)
 
+    # ------------------------------------------------ file manager
+    def _fprog(self, label):
+        """Progress callback for file jobs, throttled to ~8 updates a second."""
+        last = [0.0]
+
+        def cb(done, total, name=""):
+            now = time.time()
+            if now - last[0] > 0.12 or done >= total:
+                last[0] = now
+                self._emit("fprog", label=label, done=done, total=total, name=name)
+        return cb
+
+    def files_list(self, path):
+        import device
+        try:
+            return {"path": path, "entries": device.list_dir(self._port(), fb.sdk_dirs(), path)}
+        except (fb.BuildError, device.DeviceError) as e:
+            return {"error": str(e)}
+
+    def files_mkdir(self, path):
+        import device
+        try:
+            device.mkdir(self._port(), fb.sdk_dirs(), path)
+            return {"ok": True}
+        except (fb.BuildError, device.DeviceError) as e:
+            return {"error": str(e)}
+
+    def files_rename(self, old, new):
+        import device
+        try:
+            device.rename(self._port(), fb.sdk_dirs(), old, new)
+            return {"ok": True}
+        except (fb.BuildError, device.DeviceError) as e:
+            return {"error": str(e)}
+
+    def files_delete(self, path):
+        """Delete a file or folder on the SD card (the UI confirms first)."""
+        def work(job):
+            import device
+            job.stage("send", Path(path).name)
+            try:
+                device.remove_tree(self._port(), fb.sdk_dirs(), path,
+                                   progress=lambda d, t: self._fprog("Deleting")(d, t))
+            except device.DeviceError as e:
+                raise fb.BuildError(str(e))
+            job.log(f"OK Deleted {path}")
+            return {"files_changed": True, "send_only": True, "quiet": True}
+        return self._run_job("files", work)
+
+    def files_download(self, remote):
+        import webview
+        try:
+            res = self._window.create_file_dialog(webview.FileDialog.FOLDER)
+        except AttributeError:
+            res = self._window.create_file_dialog(webview.FOLDER_DIALOG)
+        if not res:
+            return {"cancelled": True}
+        dest = res[0]
+
+        def work(job):
+            import device
+            job.stage("send", Path(remote).name)
+            try:
+                out = device.download(self._port(), fb.sdk_dirs(), remote, dest, progress=self._fprog("Downloading"))
+            except device.DeviceError as e:
+                raise fb.BuildError(str(e))
+            job.log(f"OK Saved to {out}")
+            return {"send_only": True, "quiet": True, "saved": str(out)}
+        return self._run_job("files", work)
+
+    def files_upload(self, remote_dir):
+        import webview
+        try:
+            res = self._window.create_file_dialog(webview.FileDialog.OPEN, allow_multiple=True)
+        except AttributeError:
+            res = self._window.create_file_dialog(webview.OPEN_DIALOG, allow_multiple=True)
+        if not res:
+            return {"cancelled": True}
+        paths = list(res)
+
+        def work(job):
+            import device
+            job.stage("send", f"{len(paths)} file(s)")
+            try:
+                n = device.upload(self._port(), fb.sdk_dirs(), paths, remote_dir, progress=self._fprog("Uploading"))
+            except device.DeviceError as e:
+                raise fb.BuildError(str(e))
+            job.log(f"OK Uploaded {n} file(s) to {remote_dir}")
+            return {"files_changed": True, "send_only": True, "quiet": True}
+        return self._run_job("files", work)
+
+    # ------------------------------------------------ backups
+    BACKUP_DIR = fb.ROOT / "backups"
+
+    def backup_folders(self):
+        import device
+        try:
+            return {"folders": device.folder_sizes(self._port(), fb.sdk_dirs())}
+        except (fb.BuildError, device.DeviceError) as e:
+            return {"error": str(e)}
+
+    def backups_list(self):
+        import device
+        out = []
+        for p in sorted(self.BACKUP_DIR.glob("*.zip"), key=lambda p: -p.stat().st_mtime):
+            try:
+                info = device.backup_info(p)
+            except Exception:  # noqa: BLE001
+                continue
+            out.append({"path": str(p), "name": p.stem, "size": p.stat().st_size, "mtime": int(p.stat().st_mtime), **info})
+        return {"backups": out, "dir": str(self.BACKUP_DIR)}
+
+    def backup_start(self, names):
+        names = [n for n in names if n and "/" not in n and ".." not in n]
+        if not names:
+            return {"error": "Pick at least one folder."}
+        dev = dict(self._device)
+        stamp = time.strftime("%Y-%m-%d_%H%M")
+        label = re.sub(r"[^\w\-]+", "", dev.get("name") or "Flipper") or "Flipper"
+        path = self.BACKUP_DIR / f"{label}_{stamp}.zip"
+
+        def work(job):
+            import device
+            job.stage("send", "backup")
+            try:
+                r = device.backup(self._port(), fb.sdk_dirs(), names, path,
+                                  device_info={k: dev.get(k) for k in ("name", "fw_name", "version", "commit", "api")},
+                                  progress=self._fprog("Backing up"), should_stop=job.cancelled.is_set)
+            except device.DeviceError as e:
+                raise fb.BuildError(str(e))
+            job.log(f"OK Backup saved: {r['path']} ({r['files']} files)")
+            return {"send_only": True, "quiet": True, "backup_done": r}
+        return self._run_job("backup", work)
+
+    def backup_restore(self, path):
+        if not Path(path).is_file() or Path(path).parent != self.BACKUP_DIR:
+            return {"error": "That backup file is gone."}
+
+        def work(job):
+            import device
+            job.stage("send", "restore")
+            try:
+                r = device.restore(self._port(), fb.sdk_dirs(), path,
+                                   progress=self._fprog("Restoring"), should_stop=job.cancelled.is_set)
+            except device.DeviceError as e:
+                raise fb.BuildError(str(e))
+            job.log(f"OK Restored {r['files']} files")
+            return {"send_only": True, "quiet": True, "restored": r, "files_changed": True}
+        return self._run_job("restore", work)
+
+    def backup_delete(self, path):
+        p = Path(path)
+        if p.parent == self.BACKUP_DIR and p.suffix == ".zip" and p.is_file():
+            p.unlink()
+            return {"ok": True}
+        return {"error": "Can't delete that."}
+
+    # ------------------------------------------------ screen mirror + remote
+    def mirror_start(self):
+        import device
+        if getattr(self, "_mirror", None) and self._mirror.running:
+            return {"ok": True}
+        try:
+            port = self._port()
+        except fb.BuildError as e:
+            return {"error": str(e)}
+        self._frame = None
+        self._frame_seq = 0
+
+        def on_frame(data, orient):
+            self._frame = (data, orient)
+            self._frame_seq += 1
+
+        def on_state(state, detail=""):
+            self._emit("mirror", state=state, detail=detail)
+        self._mirror = device.Mirror(port, fb.sdk_dirs(), on_frame, on_state)
+        self._mirror.start()
+        if not getattr(self, "_frame_thread", None):
+            self._frame_thread = threading.Thread(target=self._frame_pump, daemon=True)
+            self._frame_thread.start()
+        return {"ok": True}
+
+    def _frame_pump(self):
+        """Push the newest frame straight to the page, up to 25 fps (skips frames if the page is slow)."""
+        import base64
+        sent = -1
+        while True:
+            time.sleep(0.04)
+            m = getattr(self, "_mirror", None)
+            if not m or self._frame is None or self._frame_seq == sent or self._window is None:
+                continue
+            sent = self._frame_seq
+            data, orient = self._frame
+            try:
+                self._window.evaluate_js(f"fb.onFrame('{base64.b64encode(data).decode()}', {int(orient)})")
+            except Exception:  # noqa: BLE001
+                pass
+
+    def mirror_stop(self):
+        m = getattr(self, "_mirror", None)
+        if m:
+            threading.Thread(target=m.stop, daemon=True).start()
+            self._mirror = None
+        return {"ok": True}
+
+    def mirror_press(self, key, kind="short"):
+        m = getattr(self, "_mirror", None)
+        if m and m.running:
+            try:
+                m.press(key, kind)
+            except KeyError:
+                return {"error": "bad key"}
+            return {"ok": True}
+        return {"error": "not mirroring"}
+
+    def save_screenshot(self, png_b64):
+        import base64
+        d = fb.ROOT / "screenshots"
+        d.mkdir(parents=True, exist_ok=True)
+        p = d / time.strftime("flipper_%Y-%m-%d_%H%M%S.png")
+        p.write_bytes(base64.b64decode(png_b64.split(",", 1)[-1]))
+        subprocess.Popen(["explorer", "/select,", str(p)])
+        return {"path": str(p)}
+
     # ------------------------------------------------ app update check
     def _update_check(self):
         try:

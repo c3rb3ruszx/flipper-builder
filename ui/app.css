@@ -477,6 +477,7 @@ body.booting .lcd { filter: brightness(.12) saturate(.4); box-shadow: 0 0 0 1px 
   background: #2b1a0a; color: var(--orange-2); }
 .hint .try button:hover { background: var(--orange); color: #160a00; }
 
+.mini { white-space: nowrap; flex-shrink: 0; }
 .mini.primary { background: var(--orange); color: #160a00; border-color: var(--orange); }
 .mini.primary:hover { background: var(--orange-2); }
 .mini.big { height: 40px; padding: 0 20px; font-size: 13px; }
@@ -532,9 +533,55 @@ body.booting .lcd { filter: brightness(.12) saturate(.4); box-shadow: 0 0 0 1px 
 .icon-btn.danger:hover { border-color: var(--err); color: var(--err); }
 .icon-btn.go:hover { border-color: var(--ok); color: var(--ok); }
 
+/* ---------- mirror ---------- */
+.mirror-row { display: flex; justify-content: center; align-items: center; gap: 10px; margin-top: 14px; }
+.mirror-btn {
+  display: inline-flex; align-items: center; gap: 10px; height: 36px; padding: 0 16px; border-radius: 18px;
+  background: var(--panel-2); border: 1px solid var(--line-2); font: 600 13px var(--px); color: var(--text);
+  text-transform: uppercase; letter-spacing: .5px; transition: border-color .2s, background .2s, transform .12s var(--spring);
+}
+.mirror-btn:hover { border-color: var(--orange); }
+.mirror-btn:active { transform: scale(.96); }
+.mirror-btn .rec { width: 9px; height: 9px; border-radius: 50%; background: #555; transition: background .2s, box-shadow .2s; }
+body.mirroring .mirror-btn { border-color: var(--err); background: #2a1210; }
+body.mirroring .mirror-btn .rec { background: var(--err); box-shadow: 0 0 8px var(--err); animation: blink 1s steps(2) infinite; }
+body.mirroring .lcd { box-shadow: 0 0 0 1px #000, 0 0 0 3px rgba(255,90,79,.55), 0 0 30px rgba(255,140,41,.35); cursor: default; }
+body.mirroring .device-fw { color: var(--err); }
+body.mirroring .dp, body.mirroring .back { color: #a39b93; }
+body.mirroring .dp.ok::after { border-color: var(--orange); }
+
+/* ---------- on-flipper sub sections ---------- */
+.seg.sub button { padding: 7px 4px; }
+.sub-pane { display: flex; flex-direction: column; gap: 10px; flex: 1; min-height: 0; }
+.fm-bar { display: flex; align-items: center; gap: 8px; }
+.crumbs { flex: 1; min-width: 0; display: flex; align-items: center; gap: 2px; overflow: hidden; white-space: nowrap;
+  font: 13px var(--mono); color: var(--muted); }
+.crumbs button { border: 0; background: transparent; color: var(--orange-2); padding: 4px 4px; border-radius: 4px; font: inherit; }
+.crumbs button:hover { background: #231a12; }
+.crumbs .sep { color: var(--dim); }
+.row.fm { grid-template-columns: 32px 1fr auto; padding: 6px 10px; }
+.row.fm .app-icon { width: 32px; height: 32px; border-radius: 7px; }
+.row.fm .app-icon.folder { background: #2b1a0a; color: var(--orange); }
+.row.fm .app-icon.file { background: var(--panel-2); color: var(--muted); }
+.row.fm .row-title { font-size: 14px; }
+.bk-head { display: flex; align-items: center; justify-content: space-between; gap: 12px; }
+.bk-pick { border: 1px solid var(--line-2); border-radius: 12px; padding: 12px; background: var(--panel); display: flex; flex-direction: column; gap: 10px;
+  animation: pop .3s var(--spring) both; }
+.bk-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 6px; max-height: 210px; overflow-y: auto; }
+.bk-item { display: grid; grid-template-columns: 18px 1fr auto; gap: 8px; align-items: center; text-align: left; padding: 6px 8px;
+  border: 1px solid var(--line); border-radius: 8px; background: transparent; color: var(--text); font-size: 13px; }
+.bk-item.on { border-color: var(--orange); background: #1d140b; }
+.bk-item .box { width: 16px; height: 16px; border: 2px solid var(--line-2); border-radius: 3px; display: grid; place-items: center; }
+.bk-item.on .box { background: var(--orange); border-color: var(--orange); color: #160a00; }
+.bk-item .box svg { height: 9px; }
+.bk-item small { font: 11px var(--mono); color: var(--muted); }
+.bk-foot { display: flex; align-items: center; gap: 10px; }
+.bk-foot span { flex: 1; font-size: 13px; color: var(--muted); }
+
 /* ---------- confirm dialog ---------- */
 .sheet.small { width: min(440px, 92vw); }
 .cf-body { font-size: 14px; color: var(--text); line-height: 1.5; }
+#cfInputWrap input { font-size: 14px; }
 .cf-body code { font: 12px var(--mono); color: var(--orange-2); background: #1f1712; padding: 1px 5px; border-radius: 4px; }
 .mini.danger { background: var(--err); border-color: var(--err); color: #1a0503; }
 .mini.danger:hover { background: #ff7b72; }

@@ -20,7 +20,7 @@ import zipfile
 from pathlib import Path
 
 APP_NAME = "Flipper Builder"
-APP_VERSION = "1.4.0"
+APP_VERSION = "1.5.0"
 APP_ID = "c3rb3ruszx.FlipperBuilder"
 REPO_URL = "https://github.com/c3rb3ruszx/flipper-builder"
 FROZEN = getattr(sys, "frozen", False)
