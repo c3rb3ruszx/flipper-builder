@@ -18,7 +18,7 @@ Downloads for every version are on the [Releases](../../releases) page.
     first, conflicts settled by you, deletions opt-in.
   - *Companion app*: a small Flipper app (source in `companion/`) built for your firmware, showing
     what Workbench last did.
-- **Scoop** install from the repo; winget manifests are in `packaging/winget`.
+- **Scoop** install from the repo.
 
 ## 1.7.0
 
