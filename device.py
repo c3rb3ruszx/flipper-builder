@@ -485,6 +485,66 @@ def _safe_stop(st):
         pass
 
 
+# ====================================================================== CLI terminal
+
+_ANSI = re.compile(r"\x1b\[[0-9;?]*[A-Za-z]|\x1b[()][A-Za-z0-9]|\x07")
+
+
+def cli_run(port, sdk_dirs, command, on_output, should_stop=lambda: False, limit=300):
+    """Run one command in the Flipper's own CLI and stream what it prints to on_output(text).
+
+    Ends when the prompt comes back. should_stop() (the Stop button) or `limit` seconds send Ctrl+C,
+    which ends streaming commands like `log` or `subghz rx`. Commands that wait for more typed input
+    can only be stopped. Returns how it ended: "done", "stopped" or "timeout".
+    """
+    command = command.replace("\r", " ").replace("\n", " ").strip()
+    with _exclusive():
+        mod, st = _open_guarded(port, sdk_dirs)
+        ser = st.port
+        prompt = st.CLI_PROMPT.encode() if isinstance(st.CLI_PROMPT, str) else st.CLI_PROMPT
+        try:
+            ser.timeout = 0.15
+            st.read.buffer = bytearray()
+            ser.reset_input_buffer()
+            ser.write(command.encode("utf-8") + b"\r")
+            buf, echo_done, sent_break, second_break, ended = b"", False, None, False, "done"
+            t0 = time.time()
+            while True:
+                try:
+                    chunk = ser.read(4096)
+                except (serial.SerialException, OSError, TypeError) as e:
+                    raise DeviceError(f"The Flipper's USB connection dropped. ({e})")
+                buf += chunk
+                if not echo_done:                        # the CLI echoes the command line first
+                    nl = buf.find(b"\n")
+                    if nl < 0:
+                        if time.time() - t0 > 5:
+                            raise DeviceError("The Flipper didn't answer. Unlock it, leave any open app, and try again.")
+                        continue
+                    buf, echo_done = buf[nl + 1:], True
+                done = buf.rstrip(b" ").endswith(prompt.rstrip(b" "))
+                if done:
+                    buf = buf[:buf.rstrip(b" ").rfind(prompt.rstrip(b" "))]
+                # hold back a few bytes so half a prompt (or half a UTF-8 character) never reaches the screen
+                keep = 0 if done else min(len(buf), len(prompt) + 3)
+                out, buf = buf[:len(buf) - keep], buf[len(buf) - keep:]
+                if out:
+                    on_output(_ANSI.sub("", out.decode("utf-8", "replace")).replace("\r\n", "\n").replace("\r", ""))
+                if done:
+                    return ended
+                if sent_break is None and (should_stop() or time.time() - t0 > limit):
+                    ended = "stopped" if should_stop() else "timeout"
+                    ser.write(b"\x03")                   # Ctrl+C: ends streaming commands
+                    sent_break = time.time()
+                elif sent_break is not None and time.time() - sent_break > 4 and not second_break:
+                    ser.write(b"\x03")                   # some commands need a second one
+                    second_break = True
+                elif sent_break is not None and time.time() - sent_break > 8:
+                    raise DeviceError("The command didn't stop. Unplug the Flipper and plug it back in.")
+        finally:
+            _safe_stop(st)
+
+
 # ====================================================================== backups
 
 def folder_sizes(port, sdk_dirs):

@@ -37,6 +37,7 @@
     <div class="bezel">
       <div class="lcd" id="lcd" title="Poke the dolphin">
         <canvas id="screen" width="128" height="64"></canvas>
+        <div class="lcd-hint" id="lcdHint">Arrows, Enter and Backspace press your Flipper's buttons (hold for a long press) · Esc, F11 or click to exit</div>
       </div>
     </div>
     <div class="controls-row">
@@ -162,6 +163,7 @@
           <button data-sub="apps" class="on">Apps</button>
           <button data-sub="files">Files</button>
           <button data-sub="backups">Backups</button>
+          <button data-sub="cli">CLI</button>
         </div>
         <div class="fl-progress" id="flProg" hidden><span class="blk"></span><span id="flProgText"></span><button class="mini" id="flStop">Stop</button></div>
 
@@ -192,6 +194,21 @@
           </div>
           <div class="bk-pick" id="bkPick" hidden></div>
           <div class="list" id="bkList"></div>
+        </div>
+
+        <div class="sub-pane" id="subCli" hidden>
+          <div class="cli-term" id="cliTerm">
+            <pre class="cli-out" id="cliOut"></pre>
+            <div class="cli-line">
+              <span class="cli-prompt">&gt;:</span>
+              <input id="cliInput" type="text" spellcheck="false" autocomplete="off" placeholder="Type a command, e.g. help">
+              <button class="mini" id="cliStop" hidden title="Send Ctrl+C">Stop</button>
+            </div>
+          </div>
+          <div class="cli-bar">
+            <div class="cat-filter" id="cliChips"></div>
+            <button class="mini" id="cliClear" title="Clear the terminal"><i data-icon="trash"></i>Clear</button>
+          </div>
         </div>
       </div>
     </div>

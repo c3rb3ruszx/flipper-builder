@@ -94,7 +94,8 @@ i[data-icon] svg { height: 14px; width: auto; }
   box-shadow: 0 30px 60px -20px rgba(0,0,0,.8), inset 0 1px 0 rgba(255,255,255,.06), inset 0 -2px 0 rgba(0,0,0,.6);
   position: relative;
   transform-origin: 50% 0;
-  animation: rise .7s var(--ease) both;
+  /* backwards, not both: a leftover transform would trap the full screen mirror (position: fixed) inside */
+  animation: rise .7s var(--ease) backwards;
 }
 @keyframes rise { from { opacity: 0; transform: translateY(14px) scale(.985); } }
 .device-top { display: flex; align-items: center; gap: 10px; margin: 0 4px 12px; font: 500 11px var(--px); color: var(--dim); letter-spacing: 1.5px; }
@@ -626,3 +627,42 @@ body.mirroring .dp.ok::after { border-color: var(--orange); }
 @media (prefers-reduced-motion: reduce) {
   *, *::before, *::after { animation-duration: .01ms !important; animation-iteration-count: 1 !important; transition-duration: .01ms !important; }
 }
+
+/* ---------- Flipper CLI terminal ---------- */
+#flSeg { grid-template-columns: repeat(4, 1fr); }
+.cli-term { flex: 1; min-height: 0; display: flex; flex-direction: column; background: #0a0a0a;
+  border: 1px solid var(--line); border-radius: 12px; overflow: hidden; }
+.cli-term:focus-within { border-color: var(--orange-deep); }
+.cli-out { flex: 1; min-height: 0; margin: 0; padding: 12px 14px; overflow: auto; white-space: pre-wrap; word-break: break-word;
+  font: 12.5px/1.5 var(--mono); color: #d8d2cb; user-select: text; scrollbar-width: thin; }
+.cli-out .cmd { color: var(--orange); }
+.cli-out .note { color: var(--dim); }
+.cli-out .err { color: var(--err); }
+.cli-line { display: flex; align-items: center; gap: 8px; padding: 8px 10px 8px 14px; border-top: 1px solid var(--line); background: #101010; }
+.cli-prompt { font: 600 13px var(--mono); color: var(--orange); }
+.cli-line input { flex: 1; min-width: 0; border: 0; outline: 0; background: transparent; color: var(--text); font: 13px var(--mono); padding: 4px 0; }
+.cli-line input::placeholder { color: var(--dim); }
+.cli-line input:disabled { opacity: .6; }
+.cli-bar { display: flex; align-items: center; justify-content: space-between; gap: 10px; }
+.cli-bar .cat-filter { flex: 1; }
+
+/* ---------- full screen mirror ---------- */
+body.mirroring .lcd { cursor: zoom-in; }
+.lcd-hint { display: none; }
+body.lcd-full .lcd { position: fixed; inset: 0; z-index: 1000; width: auto; height: auto; margin: 0; border-radius: 0;
+  background: #070707; box-shadow: none; cursor: zoom-out; }
+body.lcd-full .lcd canvas, body.lcd-full .lcd::after {
+  inset: auto; left: 50%; top: calc(50% - 18px); transform: translate(-50%, -50%);
+  width: min(calc(100vw - 48px), calc((100vh - 96px) * 2)); height: min(calc((100vw - 48px) / 2), calc(100vh - 96px));
+}
+body.lcd-full .lcd canvas { border-radius: 6px;
+  background: radial-gradient(120% 140% at 40% 30%, var(--lcd-hi), var(--lcd) 55%, #f27a14);
+  box-shadow: 0 0 0 2px #000, 0 0 60px rgba(255,140,41,.25); }
+/* one grid cell per Flipper pixel */
+body.lcd-full .lcd::after { border-radius: 6px;
+  background:
+    linear-gradient(0deg, rgba(0,0,0,.08) 1px, transparent 1px) 0 0 / 100% calc(100% / 64),
+    linear-gradient(90deg, rgba(0,0,0,.08) 1px, transparent 1px) 0 0 / calc(100% / 128) 100%,
+    linear-gradient(160deg, rgba(255,255,255,.12), transparent 38%); }
+body.lcd-full .lcd-hint { display: block; position: absolute; left: 0; right: 0; bottom: 22px; text-align: center;
+  font: 13px var(--px); color: var(--muted); pointer-events: none; }

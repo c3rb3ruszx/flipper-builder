@@ -50,7 +50,12 @@ repo, solders while it compiles, DJs when it's done and cries when the build bre
   update any of them.
 - **Screen mirror + remote**: the app's LCD shows your Flipper's real screen, live. The d-pad and
   your keyboard (arrows, Enter, Backspace) press the real buttons, holding one does a long press,
-  and one click saves a screenshot.
+  and one click saves a screenshot. Click the screen to go full screen, like qFlipper (Esc, F11 or
+  another click to leave).
+- **CLI**: your Flipper's own command line in a terminal tab. Type any command (`help`, `neofetch`,
+  `storage info /ext`, `log`...) and the output streams back; Up/Down recall earlier commands, Stop
+  or Ctrl+C ends commands that keep running. Commands that delete things, change settings or
+  transmit ask first.
 - **Files**: browse the whole SD card; upload, download, rename, make folders and delete.
 - **Backups**: one click backs up your captures, NFC/RFID dumps, IR remotes, BadUSB scripts and app
   data to a zip on your PC, and puts them back later. Ideal before a firmware update or SD card swap.
@@ -79,6 +84,10 @@ repo, solders while it compiles, DJs when it's done and cries when the build bre
 | **Library**: every build, per firmware, with Rebuild all | **Discover**: 500+ apps from Flipper's official catalog |
 | ![Your Flipper's real screen, mirrored live in the app](assets/screenshot-mirror.png) | ![Browsing the SD card](assets/screenshot-files.png) |
 | **Mirror**: your Flipper's real screen, controlled from the app | **Files**: the whole SD card, with upload, download and backups |
+
+![The Flipper's own command line inside the app](assets/screenshot-cli.png)
+
+**CLI**: the Flipper's own command line, with history and a Stop button for streaming commands
 
 ## Install
 
@@ -122,7 +131,9 @@ The window is a WebView2 page (pywebview) talking to the Python build engine. Th
 ufbt's SDK downloader; compiling runs inside Flipper's own toolchain (`fbtenv.cmd` + SCons, exactly
 what the `ufbt` command does), which ships its own Python, so the exe doesn't need Python installed.
 The screen mirror switches the port to Flipper's protobuf RPC (the protocol qFlipper uses) and
-streams screen frames and button events; other USB jobs pause it and hand the port back. USB uses
+streams screen frames and button events; other USB jobs pause it and hand the port back. The CLI
+tab sends each command to the Flipper's serial console and streams the reply until the prompt comes
+back (Stop sends Ctrl+C). USB uses
 the SDK's own storage client (`scripts/flipper/storage.py`, the code fbt uses); a copy ships
 as `flipper_storage.py` for before any SDK is downloaded. App names, versions and icons come from
 each `.fap`'s `.fapmeta` manifest (`fapmeta.py`). Discover indexes

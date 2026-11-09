@@ -292,6 +292,20 @@ function mockApi() {
     mirror_stop: async () => { clearInterval(mockApi.mt); return { ok: true }; },
     mirror_press: async () => ({ ok: true }),
     save_screenshot: async () => ({ path: "C:\\shot.png" }),
+    set_fullscreen: async () => ({ ok: true }),
+    cli_stop: async () => { mockApi.cstop = true; return { ok: true }; },
+    cli_run: async (cmd) => {
+      mockApi.cstop = false;
+      if (cmd === "log") {
+        later(300, [{ type: "cli", text: "Current log level: none\nPress CTRL+C to stop...\n" }]);
+        const t = setInterval(() => { if (mockApi.cstop) { clearInterval(t); emit([{ type: "cli", done: true, ended: "stopped" }]); } }, 200);
+        return { ok: true };
+      }
+      const text = cmd === "help" ? "Available commands:\nbt            loader        crypto\nlog           device_info   storage\n"
+        : cmd === "uptime" ? "Uptime: 11h23m49s\n" : `could not find command \`${cmd}\`, try \`help\`\n`;
+      later(400, [{ type: "cli", text }, { type: "cli", done: true, ended: "done" }]);
+      return { ok: true };
+    },
     files_list: async (path) => { await sleep(250); return { path, entries: path === "/ext"
       ? ["apps", "apps_data", "badusb", "infrared", "nfc", "subghz", "u2f"].map((n) => ({ name: n, dir: true, size: 0 })).concat([{ name: "readme.txt", dir: false, size: 812 }])
       : [{ name: "captures", dir: true, size: 0 }, { name: "garage.sub", dir: false, size: 2310 }, { name: "tv_off.ir", dir: false, size: 640 }] }; },
@@ -963,6 +977,7 @@ async function toggleMirror() {
   if (r.error) { MIR.state = "off"; $("#mirrorLabel").textContent = "Mirror my Flipper"; toast(r.error); }
 }
 function stopMirror(msg) {
+  setLcdFull(false);
   MIR.state = "off";
   api.mirror_stop();
   Object.values(MIR.held).forEach((h) => { clearTimeout(h.t1); clearInterval(h.t2); });
@@ -1029,8 +1044,82 @@ function setSub(name) {
   $$("#flSeg button").forEach((b) => b.classList.toggle("on", b.dataset.sub === name));
   moveInk($("#flSegInk"), $(`#flSeg button[data-sub="${name}"]`), false);
   $("#subApps").hidden = name !== "apps"; $("#subFiles").hidden = name !== "files"; $("#subBackups").hidden = name !== "backups";
+  $("#subCli").hidden = name !== "cli";
   if (name === "files") loadFiles(FM.path);
   if (name === "backups") loadBackups();
+  if (name === "cli") cliShow();
+}
+
+/* ---------- Flipper CLI: one command at a time over USB, output streamed back ---------- */
+const CLI = { running: false, hist: [], hi: 0, greeted: false };
+const CLI_QUICK = ["help", "neofetch", "device_info", "uptime", "free", "storage info /ext", "loader list", "log"];
+// commands that change or delete things, or transmit, get a confirm first
+const CLI_RISKY = /^(storage\s+(remove|format|write|write_chunk|copy|rename|mkdir|extract)|update|power\s|factory_reset|crypto\s|subghz\s+tx|ir\s+tx|nfc\s+(emulate|write)|rfid\s+(emulate|write)|ikey\s+(emulate|write)|date\s+\S)/i;
+function cliPrint(text, cls) {
+  const out = $("#cliOut"), atEnd = out.scrollHeight - out.scrollTop - out.clientHeight < 40;
+  const span = document.createElement("span");
+  if (cls) span.className = cls;
+  span.textContent = text;
+  out.appendChild(span);
+  while (out.childNodes.length > 4000) out.removeChild(out.firstChild);   // keep long `log` sessions light
+  if (atEnd) out.scrollTop = out.scrollHeight;
+}
+function cliShow() {
+  if (!CLI.greeted) {
+    CLI.greeted = true;
+    cliPrint("Your Flipper's own command line. Type a command and press Enter; try help.\n" +
+             "Up/Down recall earlier commands. Stop (or Ctrl+C) ends commands that keep running, like log.\n\n", "note");
+    $("#cliChips").innerHTML = CLI_QUICK.map((c) => `<button class="fchip" data-c="${esc(c)}">${esc(c)}</button>`).join("");
+    $$("#cliChips button").forEach((b) => (b.onclick = () => cliRun(b.dataset.c)));
+  }
+  if (!CLI.running) setTimeout(() => $("#cliInput").focus(), 50);
+}
+function cliBusy(on) {
+  CLI.running = on;
+  $("#cliInput").disabled = on;
+  $("#cliStop").hidden = !on;
+  $$("#cliChips button").forEach((b) => (b.disabled = on));
+  if (!on) $("#cliInput").focus();
+}
+async function cliRun(cmd) {
+  cmd = (cmd || "").trim();
+  if (!cmd || CLI.running) return;
+  if (!CLI.hist.length || CLI.hist[CLI.hist.length - 1] !== cmd) CLI.hist.push(cmd);
+  CLI.hi = CLI.hist.length;
+  $("#cliInput").value = "";
+  if (/^(clear|cls)$/i.test(cmd)) { $("#cliOut").innerHTML = ""; return; }
+  if (!devReady()) { cliPrint(`>: ${cmd}\n`, "cmd"); cliPrint("No Flipper. Plug it in over USB and close qFlipper.\n\n", "err"); return; }
+  if (CLI_RISKY.test(cmd) && !(await confirmDialog("Run this on your Flipper?",
+      `<code>${esc(cmd)}</code> can change or delete things on your Flipper, or transmit. Run it?`, "Run it"))) return;
+  cliPrint(`>: ${cmd}\n`, "cmd");
+  cliBusy(true);
+  const r = await api.cli_run(cmd);
+  if (r && r.error) { cliPrint(r.error + "\n\n", "err"); cliBusy(false); }
+}
+function onCli(e) {
+  if (e.text) cliPrint(e.text);
+  if (e.done) {
+    if (e.error) cliPrint(e.error + "\n", "err");
+    else if (e.ended === "stopped") cliPrint("^C\n", "note");
+    else if (e.ended === "timeout") cliPrint("Stopped after 5 minutes.\n", "note");
+    cliPrint("\n");
+    cliBusy(false);
+  }
+}
+function cliKey(e) {
+  if (e.key === "Enter") { e.preventDefault(); cliRun($("#cliInput").value); }
+  else if (e.key === "ArrowUp" && CLI.hist.length) { e.preventDefault(); CLI.hi = Math.max(0, CLI.hi - 1); $("#cliInput").value = CLI.hist[CLI.hi]; }
+  else if (e.key === "ArrowDown" && CLI.hist.length) {
+    e.preventDefault(); CLI.hi = Math.min(CLI.hist.length, CLI.hi + 1); $("#cliInput").value = CLI.hist[CLI.hi] || "";
+  }
+}
+
+/* ---------- full screen mirror (click the live screen, like qFlipper) ---------- */
+function setLcdFull(on) {
+  on = !!on && MIR.state === "live";
+  if (on === document.body.classList.contains("lcd-full")) return;
+  document.body.classList.toggle("lcd-full", on);
+  api.set_fullscreen(on);
 }
 function devReady() { return S.device.connected && !S.device.error; }
 async function loadFiles(path) {
@@ -1350,6 +1439,7 @@ function onEvents(batch) {
       }
       case "mirror": onMirrorState(e); break;
       case "fprog": onFprog(e); break;
+      case "cli": onCli(e); break;
       case "fcheck_done":
         FL.checking = false; showFlProgress(null);
         if (e.error) toast(e.error);
@@ -1471,7 +1561,13 @@ function bind() {
   $$(".tab").forEach((t) => (t.onclick = () => setTab(t.dataset.tab)));
   $$("#afterSeg button").forEach((b) => (b.onclick = () => setAfter(b.dataset.after, true)));
   $("#buildBtn").onclick = build;
-  $("#lcd").onclick = () => { wake(); LCD.poke(); if (!S.busy) LCD.say(TIPS[Math.floor(Math.random() * TIPS.length)], 3000); };
+  $("#lcd").onclick = () => {
+    if (MIR.state === "live") { setLcdFull(!document.body.classList.contains("lcd-full")); return; }
+    wake(); LCD.poke(); if (!S.busy) LCD.say(TIPS[Math.floor(Math.random() * TIPS.length)], 3000);
+  };
+  $("#cliInput").addEventListener("keydown", cliKey);
+  $("#cliStop").onclick = () => api.cli_stop();
+  $("#cliClear").onclick = () => { $("#cliOut").innerHTML = ""; $("#cliInput").focus(); };
   $("#logHead").onclick = () => openLog();
   $("#url").addEventListener("input", () => { renderPreview(); wake(); });
   $("#url").addEventListener("keydown", (e) => { if (e.key === "Enter") { e.preventDefault(); build(); } });
@@ -1503,7 +1599,10 @@ function bind() {
   const MIR_KEYS = { ArrowUp: "up", ArrowDown: "down", ArrowLeft: "left", ArrowRight: "right", Enter: "ok", Backspace: "back", Escape: "back" };
   document.addEventListener("keyup", (e) => { if (MIR.state === "live" && MIR_KEYS[e.key]) { e.preventDefault(); mirrorUp(MIR_KEYS[e.key]); } });
   document.addEventListener("keydown", (e) => {
-    const typing = ["url", "search", "pickSearch", "flSearch", "cfInput"].includes(document.activeElement && document.activeElement.id);
+    const typing = ["url", "search", "pickSearch", "flSearch", "cfInput", "cliInput"].includes(document.activeElement && document.activeElement.id);
+    if (CLI.running && e.ctrlKey && e.key.toLowerCase() === "c" && !window.getSelection().toString()) { e.preventDefault(); api.cli_stop(); return; }
+    if (e.key === "F11" && MIR.state === "live") { e.preventDefault(); setLcdFull(!document.body.classList.contains("lcd-full")); return; }
+    if (e.key === "Escape" && document.body.classList.contains("lcd-full")) { e.preventDefault(); setLcdFull(false); return; }
     if (MIR.state === "live" && !typing && $("#confirm").hidden && MIR_KEYS[e.key]) {
       e.preventDefault();
       if (!e.repeat) mirrorDown(MIR_KEYS[e.key]);

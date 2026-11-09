@@ -7,6 +7,11 @@ Downloads for every version are on the [Releases](../../releases) page.
 - **Renamed to Flipper Workbench.** It started as a builder and now also manages the apps, files,
   backups and screen of your Flipper, so the name says so. The repo moved to
   `c3rb3ruszx/flipper-workbench`; the old link redirects.
+- **CLI**: a terminal for your Flipper's own command line on the On Flipper tab. Output streams
+  back live, Up/Down recall earlier commands, Stop or Ctrl+C ends commands that keep running (like
+  `log`), and commands that delete, change settings or transmit ask first.
+- **Full screen mirror**: while mirroring, click the Flipper screen to fill the whole display with
+  it, like qFlipper. Esc, F11 or another click goes back; the buttons and keyboard keep working.
 - Upgrading from Flipper Builder: unzip the new release, then move `.cache`, `output`,
   `library.json` and `settings.json` from the old folder into the new one (or unzip over the old
   folder). Library entries find their built apps again after a folder move, and backups made by

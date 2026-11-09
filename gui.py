@@ -773,6 +773,52 @@ class Api:
             return {"ok": True}
         return {"error": "not mirroring"}
 
+    def set_fullscreen(self, on):
+        """Real full screen for the mirrored Flipper screen (the page shows only the screen meanwhile)."""
+        on = bool(on)
+        if self._window is not None and on != getattr(self, "_fullscreen", False):
+            self._fullscreen = on
+            try:
+                self._window.toggle_fullscreen()
+            except Exception:  # noqa: BLE001
+                pass
+        return {"ok": True}
+
+    # ------------------------------------------------ Flipper CLI terminal
+    def cli_run(self, command):
+        """Run one command in the Flipper's CLI; output arrives as `cli` events, then one with done=True."""
+        import device
+        if getattr(self, "_cli_busy", False):
+            return {"error": "A command is still running. Press Stop first."}
+        try:
+            port = self._port()
+        except fb.BuildError as e:
+            return {"error": str(e)}
+        self._cli_busy = True
+        self._cli_stop = threading.Event()
+
+        def work():
+            ended, error = "done", None
+            try:
+                ended = device.cli_run(port, fb.sdk_dirs(), command,
+                                       lambda text: self._emit("cli", text=text),
+                                       should_stop=self._cli_stop.is_set)
+            except device.DeviceError as e:
+                error = str(e)
+            except Exception as e:  # noqa: BLE001
+                error = f"Something went wrong: {e}"
+            finally:
+                self._cli_busy = False
+                self._emit("cli", done=True, ended=ended, error=error)
+        threading.Thread(target=work, daemon=True).start()
+        return {"ok": True}
+
+    def cli_stop(self):
+        ev = getattr(self, "_cli_stop", None)
+        if ev:
+            ev.set()
+        return {"ok": True}
+
     def save_screenshot(self, png_b64):
         import base64
         d = fb.ROOT / "screenshots"
