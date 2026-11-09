@@ -12,10 +12,10 @@ Downloads for every version are on the [Releases](../../releases) page.
   `log`), and commands that delete, change settings or transmit ask first.
 - **Full screen mirror**: while mirroring, click the Flipper screen to fill the whole display with
   it, like qFlipper. Esc, F11 or another click goes back; the buttons and keyboard keep working.
-- Upgrading from Flipper Builder: unzip the new release, then move `.cache`, `output`,
-  `library.json` and `settings.json` from the old folder into the new one (or unzip over the old
-  folder). Library entries find their built apps again after a folder move, and backups made by
-  Flipper Builder still restore.
+- Upgrading from Flipper Builder: unzip the new release anywhere, close Flipper Builder, then move
+  `.cache`, `output`, `backups`, `library.json` and `settings.json` from the old folder into the new
+  `FlipperWorkbench` folder and delete the old one. Library entries find their built apps again after
+  the move, and backups made by Flipper Builder still restore.
 - `install.ps1` (for running from source) migrates an old Flipper Builder install by itself.
 - Fix: building one app from a repo no longer deletes the other apps you built earlier from the same
   repo (for example two folders of one collection) from `output`.
