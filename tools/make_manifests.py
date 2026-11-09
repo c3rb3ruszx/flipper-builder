@@ -44,12 +44,12 @@ def main(version, zip_path):
     pid = "c3rb3ruszx.FlipperWorkbench"
     wd = ROOT / "packaging" / "winget" / "manifests" / "c" / "c3rb3ruszx" / "FlipperWorkbench" / version
     wd.mkdir(parents=True, exist_ok=True)
-    head = "# yaml-language-server: $schema=https://aka.ms/winget-manifest.{kind}.1.6.0.schema.json\n\n"
+    head = "# yaml-language-server: $schema=https://aka.ms/winget-manifest.{kind}.1.28.0.schema.json\n\n"
     (wd / f"{pid}.yaml").write_text(head.format(kind="version") + f"""PackageIdentifier: {pid}
 PackageVersion: {version}
 DefaultLocale: en-US
 ManifestType: version
-ManifestVersion: 1.6.0
+ManifestVersion: 1.28.0
 """, encoding="utf-8", newline="\n")
     (wd / f"{pid}.installer.yaml").write_text(head.format(kind="installer") + f"""PackageIdentifier: {pid}
 PackageVersion: {version}
@@ -64,7 +64,7 @@ Installers:
     InstallerUrl: {url}
     InstallerSha256: {sha.upper()}
 ManifestType: installer
-ManifestVersion: 1.6.0
+ManifestVersion: 1.28.0
 """, encoding="utf-8", newline="\n")
     (wd / f"{pid}.locale.en-US.yaml").write_text(head.format(kind="defaultLocale") + f"""PackageIdentifier: {pid}
 PackageVersion: {version}
@@ -85,7 +85,7 @@ Tags:
   - qflipper
 ReleaseNotesUrl: {REPO}/releases/tag/v{version}
 ManifestType: defaultLocale
-ManifestVersion: 1.6.0
+ManifestVersion: 1.28.0
 """, encoding="utf-8", newline="\n")
     print("scoop:", sp.relative_to(ROOT))
     print("winget:", wd.relative_to(ROOT))
