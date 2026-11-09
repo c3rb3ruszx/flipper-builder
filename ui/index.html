@@ -58,6 +58,7 @@
         <span class="rec"></span><span id="mirrorLabel">Mirror my Flipper</span>
       </button>
       <button class="icon-btn" id="shotBtn" hidden title="Save a screenshot of the Flipper's screen"><i data-icon="camera"></i></button>
+      <button class="icon-btn rec-btn" id="recBtn" hidden title="Record the Flipper's screen as a GIF (up to 60 s)"><i data-icon="record"></i><span id="recTime"></span></button>
     </div>
   </section>
 
@@ -154,6 +155,8 @@
           </div>
           <div class="fl-actions">
             <button class="mini" id="flUpdateAll" hidden title="Install your newer builds over the apps on the Flipper"><i data-icon="download"></i><span id="flUpdateLabel">Update</span></button>
+            <button class="mini" id="flFirmware" title="Update your Flipper's firmware"><i data-icon="usb"></i>Firmware</button>
+            <button class="mini" id="flClean" title="Find duplicate apps, apps that won't open, old update packages and leftover temp files"><i data-icon="trash"></i>Clean up</button>
             <button class="mini" id="flRefresh" title="Read the Flipper's apps again"><i data-icon="refresh"></i>Refresh</button>
           </div>
         </div>
@@ -181,6 +184,7 @@
             <button class="icon-btn" id="fmUp" title="Up one folder"><i data-icon="tri-up"></i></button>
             <div class="crumbs" id="fmCrumbs"></div>
             <button class="mini" id="fmNew" title="New folder here"><i data-icon="folder"></i>New folder</button>
+            <button class="mini" id="fmNewFile" title="New text file here, e.g. a BadUSB or JavaScript script"><i data-icon="file"></i>New file</button>
             <button class="mini primary" id="fmUpload" title="Copy files from your PC into this folder"><i data-icon="upload"></i>Upload</button>
             <button class="icon-btn" id="fmRefresh" title="Refresh"><i data-icon="refresh"></i></button>
           </div>
@@ -192,6 +196,10 @@
             <div class="lib-note">Back up your captures, dumps, remotes and app data to a zip on this PC, and put them back later.</div>
             <button class="mini primary" id="bkNew"><i data-icon="download"></i>New backup</button>
           </div>
+          <label class="toggle" title="Once a day, the first time you plug in this Flipper. The last 5 automatic backups are kept; your own backups are never deleted.">
+            <input type="checkbox" id="bkAuto" checked><span class="switch"><span class="knob"></span></span>
+            <span class="toggle-text">Back up automatically when I plug in my Flipper<small style="color:var(--dim);font-size:12px">Once a day, the last 5 kept. Your own backups are never deleted.</small></span>
+          </label>
           <div class="bk-pick" id="bkPick" hidden></div>
           <div class="list" id="bkList"></div>
         </div>
@@ -256,6 +264,32 @@
     <div class="sheet-foot">
       <button class="mini" id="cfNo">Cancel</button>
       <button class="mini primary big danger" id="cfYes">OK</button>
+    </div>
+  </div>
+</div>
+
+<div class="modal" id="viewer" hidden>
+  <div class="sheet viewer">
+    <div class="sheet-head vw-head">
+      <div class="vw-titles">
+        <div class="sheet-title" id="vwTitle">File</div>
+        <div class="sheet-sub" id="vwSub"></div>
+      </div>
+      <div class="vw-actions">
+        <button class="mini" id="vwEdit" hidden><i data-icon="edit"></i>Edit</button>
+        <button class="mini" id="vwDownload"><i data-icon="download"></i>Download</button>
+        <button class="icon-btn" id="vwClose" title="Close (Esc)"><i data-icon="cross"></i></button>
+      </div>
+    </div>
+    <div class="vw-body" id="vwBody"></div>
+    <div class="vw-editor" id="vwEditor" hidden>
+      <div class="ed-wrap"><pre class="ed-hl" id="edHl" aria-hidden="true"></pre><textarea id="edText" spellcheck="false" autocomplete="off" wrap="off"></textarea></div>
+      <div class="sheet-foot ed-foot">
+        <span class="ed-status" id="edStatus"></span>
+        <button class="mini" id="edRun" hidden title="Save, then run this script on the Flipper (output in the CLI tab)"><i data-icon="play"></i>Save &amp; run</button>
+        <button class="mini" id="edCancel">Cancel</button>
+        <button class="mini primary" id="edSave">Save to Flipper</button>
+      </div>
     </div>
   </div>
 </div>

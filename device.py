@@ -280,6 +280,39 @@ def read_file(port, sdk_dirs, path, size_hint=0):
                         seconds=15 + size_hint / 8192)
 
 
+def write_file(port, sdk_dirs, path, data):
+    """Save bytes to a file on the SD card: written to <path>.fwtmp first, then swapped in, so an
+    interrupted save never leaves a half-written file in place."""
+    import tempfile
+    path = _norm(path)
+    if not path.startswith("/ext/"):
+        raise DeviceError("Only files on the SD card can be saved.")
+    tmp_remote = path + ".fwtmp"
+    fd, tmp_local = tempfile.mkstemp(prefix="fw_", suffix=".bin")
+    try:
+        with os.fdopen(fd, "wb") as fh:
+            fh.write(data)
+
+        def fn(mod, st):
+            st.send_file(tmp_local, tmp_remote)
+            if st.size(tmp_remote) != len(data):
+                st.remove(tmp_remote)
+                raise DeviceError("The file didn't arrive complete; nothing was changed.")
+            if st.exist_file(path):
+                st.remove(path)
+            st.send_and_wait_eol(f'storage rename "{tmp_remote}" "{path}"\r')
+            answer = st.read.until(st.CLI_PROMPT)
+            if st.has_error(answer):
+                raise DeviceError(f"Couldn't save {path}: {answer.decode('utf-8', 'replace').strip()}")
+        storage_call(port, sdk_dirs, fn, seconds=20 + len(data) / 4096)
+    finally:
+        try:
+            os.remove(tmp_local)
+        except OSError:
+            pass
+    return len(data)
+
+
 def read_many(port, sdk_dirs, items, on_file, should_stop=lambda: False):
     """Read several files in ONE session (opening the port costs ~0.5 s per session).
     items: [{path, size}]; on_file(item, bytes) for each. Stops early if should_stop()."""
@@ -366,6 +399,113 @@ def _walk(st, path):
         else:
             files.append((p, size))
     return files
+
+
+# ====================================================================== firmware update
+
+def device_power(port, sdk_dirs):
+    """Battery facts from `info power` (charge.level, charge.state, battery.voltage...)."""
+    out = []
+    cli_run(port, sdk_dirs, "info power", out.append, limit=10)
+    return parse_info("".join(out))
+
+
+def sd_free_kib(port, sdk_dirs):
+    def fn(mod, st):
+        st.send_and_wait_eol('storage info /ext\r')
+        text = st.read.until(st.CLI_PROMPT).decode("utf-8", "replace")
+        m = re.search(r"(\d+)KiB free", text)
+        return int(m.group(1)) if m else None
+    return storage_call(port, sdk_dirs, fn, seconds=15)
+
+
+def upload_update(port, sdk_dirs, pkg_dir, progress=lambda done, total, name: None, should_stop=lambda: False):
+    """Copy an unpacked update package to /ext/update/<name>/ and check every file's MD5 on the Flipper.
+    Returns the remote folder. Nothing is installed here."""
+    pkg_dir = Path(pkg_dir)
+    name = pkg_dir.name
+    if not re.fullmatch(r"[\w.\-]+", name):
+        raise DeviceError("Unexpected update package name.")
+    remote_dir = f"/ext/update/{name}"
+    files = sorted(f for f in pkg_dir.rglob("*") if f.is_file())
+    total = sum(f.stat().st_size for f in files) or 1
+    with _exclusive():
+        mod, st = _open_guarded(port, sdk_dirs)
+        try:
+            ops = mod.FlipperStorageOperations(st)
+            done = 0
+            for f in files:
+                if should_stop():
+                    raise DeviceError("Cancelled.")
+                remote = f"{remote_dir}/{f.relative_to(pkg_dir).as_posix()}"
+                with _Watchdog(st, 30 + f.stat().st_size / 4096):
+                    ops.mkpath(remote.rsplit("/", 1)[0])
+                    st.send_file(str(f), remote)
+                    if st.hash_flipper(remote).strip().lower() != st.hash_local(str(f)).strip().lower():
+                        raise DeviceError(f"{f.name} didn't arrive intact on the SD card. Nothing was installed.")
+                done += f.stat().st_size
+                progress(done, total, remote)
+        except mod.FlipperStorageException as e:
+            raise DeviceError(str(e))
+        finally:
+            _safe_stop(st)
+    return remote_dir
+
+
+def start_update(port, sdk_dirs, remote_dir):
+    """Close any open app, then `update install` (the Flipper verifies the package and restarts into
+    its updater). Same steps as the SDK's scripts/selfupdate.py."""
+    if not re.fullmatch(r"/ext/update/[\w.\-]+", remote_dir):
+        raise DeviceError("Unexpected update folder.")
+    with _exclusive():
+        mod, st = _open_guarded(port, sdk_dirs)
+        try:
+            with _Watchdog(st, 40):
+                for _ in range(10):
+                    st.send_and_wait_eol("loader close\r")
+                    result = st.read.until(st.CLI_EOL)
+                    if b"was closed" in result:
+                        st.read.until(st.CLI_EOL)
+                        time.sleep(0.3)
+                    elif result.startswith(b"No application"):
+                        st.read.until(st.CLI_EOL)
+                        break
+                    else:
+                        raise DeviceError(f"Couldn't close the open app: {result.decode('utf-8', 'replace').strip()}")
+                st.send_and_wait_eol(f"update install {remote_dir}/update.fuf\r")
+                result = st.read.until(st.CLI_EOL)
+                if b"Verifying" not in result:
+                    raise DeviceError(f"The Flipper didn't accept the update: {result.decode('utf-8', 'replace').strip()}")
+                result = st.read.until(st.CLI_EOL)
+                if not result.startswith(b"OK"):
+                    raise DeviceError(f"The Flipper rejected the package: {result.decode('utf-8', 'replace').strip()}. Nothing was changed.")
+        finally:
+            _safe_stop(st)
+    return True
+
+
+TEMP_SUFFIXES = (".fwtmp", ".tmp", ".temp", ".part", ".bak~")
+
+
+def cleanup_scan(port, sdk_dirs):
+    """Things that are safe to delete: leftover temp files (in /ext and /ext/apps) and firmware update
+    packages already unpacked in /ext/update. Apps (duplicates, wrong API) are judged by the UI."""
+    def fn(mod, st):
+        temp, updates = [], []
+        for kind, name, size in _list(st, "/ext"):
+            if kind == "F" and name.lower().endswith(TEMP_SUFFIXES):
+                temp.append({"path": f"/ext/{name}", "size": size})
+        for p, size in _walk(st, "/ext/apps"):
+            if p.lower().endswith(TEMP_SUFFIXES):
+                temp.append({"path": p, "size": size})
+        for kind, name, size in _list(st, "/ext/update"):
+            if kind == "D":
+                files = _walk(st, f"/ext/update/{name}")
+                updates.append({"path": f"/ext/update/{name}", "size": sum(s for _, s in files), "files": len(files)})
+            else:
+                updates.append({"path": f"/ext/update/{name}", "size": size, "files": 1})
+        return {"temp": temp, "updates": updates}
+    return storage_call(port, sdk_dirs, fn, seconds=90)
 
 
 def _check(st, response, path):
@@ -587,7 +727,8 @@ def backup(port, sdk_dirs, names, zip_path, device_info=None, progress=lambda do
                     progress(done, total, f)
                 z.writestr(BACKUP_META, json.dumps({
                     "created": int(time.time()), "folders": names, "files": len(files), "bytes": done,
-                    "device": device_info or {}}, indent=1))
+                    "device": device_info or {},
+                    "index": [[f, size] for f, size in files]}, indent=1))
         finally:
             _safe_stop(st)
     os.replace(tmp, zip_path)
@@ -596,6 +737,29 @@ def backup(port, sdk_dirs, names, zip_path, device_info=None, progress=lambda do
 
 BACKUP_META = "_flipper_workbench_backup.json"
 _META_NAMES = (BACKUP_META, "_flipper_builder_backup.json")   # backups made before the rename
+
+
+def list_files(port, sdk_dirs, names):
+    """[(path, size)] of everything a backup of these top-level names would contain (sorted)."""
+    def fn(mod, st):
+        files = []
+        for n in names:
+            p = f"/ext/{n}"
+            files += [(p, st.size(p))] if st.exist_file(p) else _walk(st, p)
+        return sorted(files)
+    return storage_call(port, sdk_dirs, fn, seconds=120)
+
+
+def backup_index(zip_path):
+    """The (path, size) list a backup recorded, or None for backups made before 1.7.0."""
+    with zipfile.ZipFile(zip_path) as z:
+        for n in _META_NAMES:
+            try:
+                idx = json.loads(z.read(n)).get("index")
+                return sorted((p, s) for p, s in idx) if idx is not None else None
+            except KeyError:
+                pass
+    return None
 
 
 def backup_info(zip_path):

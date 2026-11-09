@@ -293,6 +293,30 @@ function mockApi() {
     mirror_press: async () => ({ ok: true }),
     save_screenshot: async () => ({ path: "C:\\shot.png" }),
     set_fullscreen: async () => ({ ok: true }),
+    files_view: async (path) => {
+      if (/\.ir$/.test(path)) return { kind: "ir", title: "Infrared remote", size: 812, fields: [["Buttons", "2"], ["File type", "IR signals file"]],
+        buttons: [{ name: "Power", detail: "NEC · address 0x7 · command 0x2", tx: "ir tx NEC 0x7 0x2" }, { name: "Vol_up", detail: "raw · 38 kHz · 4 samples", tx: "ir tx RAW F:38000 DC:33 9000 4500 560 560" }],
+        note: "Send fires the button from your Flipper's IR LED, so point it at the device.", text: "Filetype: IR signals file\nVersion: 1\n#\nname: Power\ntype: parsed\n" };
+      if (/\.sub$/.test(path)) return { kind: "subghz", title: "Sub-GHz recording", size: 20480, fields: [["Frequency", "433.92 MHz"], ["Modulation", "AM650 (OOK, 650 kHz)"], ["Protocol", "RAW"], ["Samples", "1,200"], ["Length", "1.84 s"]],
+        wave: Array.from({ length: 300 }, (_, i) => (i % 2 ? -1 : 1) * (200 + ((i * 97) % 900))), text: "Filetype: Flipper SubGhz RAW File\n" };
+      return { kind: "js", title: "JavaScript app", size: 120, fields: [["Lines", "3"]], text: '// demo\nlet x = 42;\nprint("Hello " + x);\n' };
+    },
+    files_save: async (p, t) => ({ ok: true, size: t.length }),
+    ir_send: async () => ({ ok: true }),
+    record_start: async () => ({ ok: true, max: 60 }),
+    auto_backup_due: async () => ({ due: false }),
+    auto_backup_plan: async () => ({ due: false }),
+    cleanup_scan: async () => { await sleep(500); return { temp: [{ path: "/ext/apps/Tools/clock.fap.fwtmp", size: 4200 }], updates: [{ path: "/ext/update/f7-update-mntm-011", size: 2400000, files: 9 }] }; },
+    cleanup_delete: async () => ({ ok: true }),
+    fw_info: async () => { await sleep(400); return { power: { "charge.level": "100", "charge.state": "charged" }, targets: {
+      official: { id: "official", family: "Official", channel: "release", version: "1.5.1", age: "25 days ago", changelog: "- Lots of fixes" },
+      "momentum-dev": { id: "momentum-dev", family: "Momentum", channel: "dev", version: "d3f89dfe", age: "82 days ago", changelog: "" },
+      momentum: { id: "momentum", family: "Momentum", channel: "release", version: "mntm-012", age: "312 days ago", changelog: "" } } }; },
+    fw_prepare: async () => { later(1200, [{ type: "finished", ok: true, quiet: true, send_only: true, fw_ready: { remote: "/ext/update/x", family: "Official", version: "1.5.1" } }]); return { ok: true }; },
+    fw_discard: async () => ({ ok: true }),
+    fw_bundled: async () => ({ apps: ["game_2048.fap"] }),
+    set_auto_backup: async () => ({ ok: true }),
+    record_stop: async () => ({ path: "rec.gif", frames: 40, seconds: 3.2 }),
     cli_stop: async () => { mockApi.cstop = true; return { ok: true }; },
     cli_run: async (cmd) => {
       mockApi.cstop = false;
@@ -371,7 +395,7 @@ function ago(t) {
   if (s < 86400) return Math.round(s / 3600) + " h ago";
   return Math.round(s / 86400) + " d ago";
 }
-const isLocalPath = (t) => /^[A-Za-z]:[\\/]|^\\\\/.test((t || "").trim());
+const isLocalPath = (t) => /^[A-Za-z]:[\\/]|^\\\\|^(\/(Users|home|Volumes)\/|~\/)/.test((t || "").trim());
 
 /* ---------- LED ---------- */
 function led(color, blink = false) { $("#led").className = "led" + (color ? " " + color : "") + (blink ? " blink" : ""); }
@@ -484,6 +508,7 @@ function onDevice(d) {
       toast(`${S.device.fw_name || "This firmware"} isn't one I know. Pick the closest one.`);
     }
     if (!S.busy) { LCD.say(msg, 4000); LCD.poke(); }
+    setTimeout(autoBackup, 2500);   // after the hello, and after any SD reads the tabs start
   } else if (was.connected && !S.device.connected && !S.busy) {
     LCD.say("Bye Flipper!", 2500);
   }
@@ -817,6 +842,32 @@ function libMatch(app) {          // a build in the library for this file, prefe
   const same = S.lib.items.filter((i) => (i.files || [{ path: i.file }]).some((f) => (f.path || "").split(/[\\/]/).pop().toLowerCase() === app.file.toLowerCase()));
   return same.find((i) => i.fw === S.device.fw) || null;
 }
+function vNewer(a, b) {            // is version a newer than b? ("1.10" > "1.9")
+  const pa = String(a).match(/\d+/g) || [], pb = String(b).match(/\d+/g) || [];
+  for (let i = 0; i < Math.max(pa.length, pb.length); i++) {
+    const x = +(pa[i] || 0), y = +(pb[i] || 0);
+    if (x !== y) return x > y;
+  }
+  return false;
+}
+function catUpdate(app) {          // newer release of this app in Flipper's official catalog
+  if (!S.catalog || !S.catalog.apps || !app.meta || !app.meta.version) return null;
+  // apps that ship with the firmware are updated with it; on custom firmware, if we can't tell, say nothing
+  if (S.bundled === undefined) return null;
+  if (S.bundled ? S.bundled.has(app.file.toLowerCase()) : !/^official/.test(S.device.fw || "")) return null;
+  const id = app.file.replace(/\.fap$/i, "");
+  const c = S.catalog.apps.find((x) => x.id === id);
+  return c && c.version && vNewer(c.version, app.meta.version) ? c : null;
+}
+async function catDoUpdate(app, c) {
+  const m = app.meta || {};
+  if (!(await confirmDialog(`Update ${m.name || app.file}?`,
+    `Flipper's catalog has <b>v${esc(c.version)}</b> (you have v${esc(m.version)}). I'll build it for your firmware and install it over the one on your Flipper.`, "Update"))) return;
+  setTab("build");
+  $("#url").value = c.url; renderPreview();
+  setAfter("install", true);
+  build();
+}
 function flUpdate(app) {          // library build that should replace what's installed
   const lib = libMatch(app);
   if (!lib || !app.meta) return null;
@@ -828,6 +879,12 @@ function flUpdate(app) {          // library build that should replace what's in
 async function loadFlipper() {
   if (!S.device.connected || S.device.error) { FL.apps = null; FL.error = ""; renderFlipper(); return; }
   if (!S.lib) await loadLibrary();
+  if (!S.catalog) api.catalog(false).then((d) => { if (d && !d.error && !S.catalog) { S.catalog = d; if (FL.apps) renderFlipper(); } });
+  const bkey = `${S.device.fw}|${S.device.version}|${S.device.commit}`;
+  if (S.bundledKey !== bkey) {
+    S.bundledKey = bkey; S.bundled = undefined;
+    api.fw_bundled().then((r) => { if (S.bundledKey === bkey) { S.bundled = r && r.apps ? new Set(r.apps) : null; if (FL.apps) renderFlipper(); } });
+  }
   $("#flList").innerHTML = `<div class="skeleton"><span class="blk"></span>Reading your Flipper's SD card...</div>`;
   const r = await api.flipper_list();
   if (r.error) { FL.apps = null; FL.error = r.error; renderFlipper(); return; }
@@ -890,7 +947,7 @@ function renderFlipper() {
   list.innerHTML = "";
   if (bad) list.insertAdjacentHTML("beforeend", `<div class="lib-note" style="color:var(--orange-2)">${bad} app${bad > 1 ? "s" : ""} won't open on this firmware (built for another API). Rebuild them here, or remove them.</div>`);
   shown.forEach((a, idx) => {
-    const m = a.meta || {}, lib = libMatch(a), upd = flUpdate(a);
+    const m = a.meta || {}, lib = libMatch(a), upd = flUpdate(a), cup = upd ? null : catUpdate(a);
     const icon = m.icon ? xbmIcon(m.icon) : lib && lib.icon;
     const ok = m.api ? apiOk(m.api, d.api) : null;
     const row = document.createElement("div");
@@ -903,6 +960,7 @@ function renderFlipper() {
       <div class="row-sub"><span class="badge fw">${esc(a.category)}</span>` +
       (ok === false ? `<span class="badge bad" title="Built for API ${esc(m.api)}, your Flipper is ${esc(d.api)}">won't open (API ${esc(m.api)})</span>` : ok ? `<span class="badge ok">runs</span>` : "") +
       (upd ? `<span class="badge old">update in library</span>` : lib ? `<span class="badge fw" title="You built this one">yours</span>` : "") +
+      (cup ? `<span class="badge old" title="Flipper's official catalog has a newer version">v${esc(cup.version)} in catalog</span>` : "") +
       `<span>${fmtSize(a.size)} · ${esc(a.file)}</span></div></div><div class="row-actions"></div>`;
     const acts = $(".row-actions", row);
     const openBtn = iconBtn("play", "Open it on the Flipper", async () => {
@@ -912,6 +970,7 @@ function renderFlipper() {
     });
     openBtn.classList.add("go");
     acts.append(openBtn);
+    if (cup) acts.append(iconBtn("download", `Update to v${cup.version} from Flipper's catalog`, () => catDoUpdate(a, cup)));
     if (upd) acts.append(iconBtn("download", `Install your build (API ${upd.api}) over it`, () => flDoUpdate([[a, upd]])));
     const rm = iconBtn("trash", "Remove it from the Flipper", () => flRemove(a));
     rm.classList.add("danger");
@@ -985,6 +1044,7 @@ function stopMirror(msg) {
   document.body.classList.remove("mirroring");
   $("#mirrorLabel").textContent = "Mirror my Flipper";
   $("#shotBtn").hidden = true;
+  recStop(); $("#recBtn").hidden = true;
   $("#deviceFw").textContent = fwObj().short;
   $("#legend").innerHTML = `<span><b>&#9664; &#9654;</b> firmware</span><span><b>OK</b> build</span><span><b>&#8617;</b> cancel</span>`;
   LCD.endLive();
@@ -995,7 +1055,7 @@ function onMirrorState(e) {
     MIR.state = "live";
     document.body.classList.add("mirroring");
     $("#mirrorLabel").textContent = "Stop mirroring";
-    $("#shotBtn").hidden = false;
+    $("#shotBtn").hidden = false; $("#recBtn").hidden = false;
     $("#deviceFw").textContent = "LIVE";
     $("#legend").innerHTML = `<span><b>d-pad / arrows</b> navigate</span><span><b>OK / Enter</b> select</span><span><b>&#8617; / Backspace</b> back</span><span><b>hold</b> long press</span>`;
     clearTimeout(S.idleTimer); clearTimeout(S.sleepTimer);
@@ -1022,6 +1082,30 @@ function mirrorUp(key) {
   delete MIR.held[key];
   if (!h.long) api.mirror_press(key, "short");
   api.mirror_press(key, "release");
+}
+/* GIF recording: Python keeps the frames, the button shows the time */
+const REC = { on: false, t0: 0, timer: null, max: 60 };
+function recToggle() { if (REC.on) recStop(); else recStart(); }
+async function recStart() {
+  const r = await api.record_start();
+  if (r.error) { toast(r.error); return; }
+  REC.on = true; REC.t0 = Date.now(); REC.max = r.max || 60;
+  $("#recBtn").classList.add("on"); $("#recBtn").title = "Stop recording and save the GIF";
+  const tick = () => {
+    const s = Math.floor((Date.now() - REC.t0) / 1000);
+    $("#recTime").textContent = `${Math.floor(s / 60)}:${String(s % 60).padStart(2, "0")}`;
+    if (s >= REC.max) recStop();
+  };
+  tick(); REC.timer = setInterval(tick, 250);
+}
+async function recStop() {
+  if (!REC.on) return;
+  REC.on = false; clearInterval(REC.timer);
+  $("#recBtn").classList.remove("on"); $("#recBtn").title = "Record the Flipper's screen as a GIF (up to 60 s)";
+  toast("Saving GIF...");
+  const r = await api.record_stop(true);
+  if (r.error) toast(r.error);
+  else if (r.path) toast(`GIF saved (${r.seconds}s)`);
 }
 function screenshot() {
   if (!MIR.frame) return;
@@ -1155,10 +1239,272 @@ function renderFiles() {
       iconBtn("edit", "Rename", () => fmRename(e, p)),
     );
     const rm = iconBtn("trash", "Delete", () => fmDelete(e, p)); rm.classList.add("danger"); acts.append(rm);
-    if (e.dir) { row.style.cursor = "pointer"; row.onclick = () => loadFiles(p); }
+    row.style.cursor = "pointer";
+    row.onclick = (ev) => { if (ev.target.closest(".row-actions")) return; if (e.dir) loadFiles(p); else openViewer(p, e.size); };
     list.appendChild(row);
   });
   renderIcons(list);
+}
+/* ---------- file viewer (captures in plain language) + script editor ---------- */
+const VW = { path: null, data: null, dirty: false, isNew: false };
+const ED_JS = new Set("const let var function return if else for while do break continue new typeof instanceof in of true false null undefined this class extends import export from require try catch finally throw switch case default async await".split(" "));
+const ED_DUCKY = /^(REM|REM_BLOCK|END_REM|STRING|STRINGLN|DELAY|DEFAULT_DELAY|DEFAULTDELAY|DEFAULT_STRING_DELAY|STRING_DELAY|REPEAT|GUI|WINDOWS|COMMAND|CTRL|CONTROL|ALT|OPTION|SHIFT|ENTER|ESC|ESCAPE|TAB|SPACE|BACKSPACE|DELETE|UP|DOWN|LEFT|RIGHT|UPARROW|DOWNARROW|LEFTARROW|RIGHTARROW|HOME|END|PAGEUP|PAGEDOWN|INSERT|CAPSLOCK|NUMLOCK|SCROLLLOCK|PRINTSCREEN|MENU|APP|F\d{1,2}|ID|HOLD|RELEASE|ALTCHAR|ALTSTRING|ALTCODE|SYSRQ|WAIT_FOR_BUTTON_PRESS|MEDIA|BLE_ID|BT_ID|CTRL-ALT|CTRL-SHIFT|ALT-SHIFT|ALT-GUI|GUI-SHIFT|CTRL-GUI)\b/;
+function edKind(path) { return /\.js$/i.test(path) ? "js" : (/\/badusb\//i.test(path) || /\.(ducky|bad)$/i.test(path)) ? "ducky" : "text"; }
+function edHighlight(text, kind) {
+  if (kind === "ducky") {
+    return text.split("\n").map((ln) => {
+      const m = ln.match(/^(\s*)(\S+)(.*)$/);
+      if (!m) return esc(ln);
+      if (/^REM\b/.test(m[2])) return `<span class="c">${esc(ln)}</span>`;
+      if (ED_DUCKY.test(m[2])) {
+        const rest = /^STRING/.test(m[2]) ? `<span class="s">${esc(m[3])}</span>` : esc(m[3]).replace(/\b(\d+)\b/g, '<span class="n">$1</span>');
+        return `${esc(m[1])}<span class="k">${esc(m[2])}</span>${rest}`;
+      }
+      return esc(ln);
+    }).join("\n");
+  }
+  if (kind === "js") {
+    const re = /(\/\/[^\n]*|\/\*[\s\S]*?\*\/)|("(?:\\.|[^"\\\n])*"|'(?:\\.|[^'\\\n])*'|`(?:\\.|[^`\\])*`)|\b(\d+(?:\.\d+)?)\b|([A-Za-z_$][\w$]*)(?=\s*\()|([A-Za-z_$][\w$]*)/g;
+    let out = "", last = 0, m;
+    while ((m = re.exec(text))) {
+      out += esc(text.slice(last, m.index)); last = re.lastIndex;
+      if (m[1]) out += `<span class="c">${esc(m[1])}</span>`;
+      else if (m[2]) out += `<span class="s">${esc(m[2])}</span>`;
+      else if (m[3]) out += `<span class="n">${m[3]}</span>`;
+      else if (m[4]) out += ED_JS.has(m[4]) ? `<span class="k">${m[4]}</span>` : `<span class="f">${m[4]}</span>`;
+      else out += ED_JS.has(m[5]) ? `<span class="k">${m[5]}</span>` : m[5];
+    }
+    return out + esc(text.slice(last));
+  }
+  return esc(text);
+}
+function edRender() {
+  const t = $("#edText").value;
+  $("#edHl").innerHTML = edHighlight(t, edKind(VW.path)) + "\n";
+  $("#edHl").scrollTop = $("#edText").scrollTop; $("#edHl").scrollLeft = $("#edText").scrollLeft;
+}
+function vwFields(fields) {
+  return `<dl class="vw-fields">${fields.map(([k, v]) => `<dt>${esc(k)}</dt><dd>${esc(v)}</dd>`).join("")}</dl>`;
+}
+function vwWave(wave) {
+  const c = document.createElement("canvas"); c.className = "vw-wave";
+  requestAnimationFrame(() => {
+    const w = c.clientWidth, h = c.clientHeight; c.width = w * devicePixelRatio; c.height = h * devicePixelRatio;
+    const x = c.getContext("2d"); x.scale(devicePixelRatio, devicePixelRatio);
+    const total = wave.reduce((a, b) => a + Math.abs(b), 0) || 1;
+    x.strokeStyle = "#ff8200"; x.lineWidth = 1.2; x.beginPath();
+    let t = 0, y0 = h * 0.72, y1 = h * 0.22; x.moveTo(0, y0);
+    for (const v of wave) {
+      const y = v > 0 ? y1 : y0, nx = (t + Math.abs(v)) / total * w;
+      x.lineTo(t / total * w, y); x.lineTo(nx, y); t += Math.abs(v);
+    }
+    x.stroke();
+  });
+  return c;
+}
+async function openViewer(path, size) {
+  VW.path = path; VW.data = null; VW.isNew = false;
+  $("#vwTitle").textContent = path.split("/").pop();
+  $("#vwSub").textContent = path;
+  $("#vwEdit").hidden = true; $("#vwDownload").hidden = false;
+  $("#vwEditor").hidden = true; $("#vwBody").hidden = false;
+  $("#vwBody").innerHTML = `<div class="skeleton"><span class="blk"></span>Reading ${esc(path.split("/").pop())}...</div>`;
+  $("#viewer").hidden = false;
+  const r = await api.files_view(path, size || 0);
+  if (VW.path !== path) return;
+  VW.data = r;
+  const body = $("#vwBody");
+  if (r.error) { body.innerHTML = `<div class="vw-empty"><b>Couldn't open it</b><br>${esc(r.error)}</div>`; return; }
+  if (r.too_big) { body.innerHTML = `<div class="vw-empty">${fmtSize(r.size)} is too big to show here. Download it instead.</div>`; return; }
+  if (r.binary) { body.innerHTML = `<div class="vw-empty">This is a binary file (${fmtSize(r.size)}), not text. Download it to open it on your PC.</div>`; return; }
+  $("#vwTitle").textContent = r.title || path.split("/").pop();
+  $("#vwSub").textContent = `${path} · ${fmtSize(r.size)}`;
+  $("#vwEdit").hidden = false;
+  body.innerHTML = vwFields(r.fields || []);
+  if (r.note) body.insertAdjacentHTML("beforeend", `<div class="vw-note">${esc(r.note)}</div>`);
+  if (r.wave && r.wave.length) { body.insertAdjacentHTML("beforeend", `<div class="vw-sec">Signal</div>`); body.appendChild(vwWave(r.wave)); }
+  if (r.buttons) {
+    body.insertAdjacentHTML("beforeend", `<div class="vw-sec">Buttons</div><div class="vw-btns" id="vwBtns"></div>`);
+    r.buttons.forEach((b) => {
+      const row = document.createElement("div"); row.className = "vw-btn";
+      row.innerHTML = `<b>${esc(b.name)}</b><span>${esc(b.detail || b.type)}</span>`;
+      if (b.tx) {
+        const go = document.createElement("button"); go.className = "mini"; go.innerHTML = `<i data-icon="play"></i>Send`;
+        go.title = "Fire this button from the Flipper's IR LED";
+        go.onclick = async () => {
+          if (!devReady()) { needDevice(); return; }
+          go.disabled = true;
+          const res = await api.ir_send(b.tx);
+          go.disabled = false;
+          toast(res.error ? `IR: ${res.error}` : `Sent ${b.name}`);
+        };
+        row.appendChild(go);
+      }
+      $("#vwBtns").appendChild(row);
+    });
+  }
+  if (r.blocks) {
+    body.insertAdjacentHTML("beforeend", `<details class="vw-details"><summary>Show all ${r.blocks.length} ${esc(r.blocks[0][0].split(" ")[0].toLowerCase())}s</summary><pre class="vw-raw">${r.blocks.map(([k, v]) => `${esc(k.padEnd(10))} ${esc(v)}`).join("\n")}</pre></details>`);
+  }
+  const textKind = ["js", "badusb", "text"].includes(r.kind);
+  body.insertAdjacentHTML("beforeend", textKind
+    ? `<pre class="vw-raw">${edHighlight(r.text, edKind(path))}</pre>`
+    : `<details class="vw-details"><summary>Show the file as text</summary><pre class="vw-raw">${esc(r.text)}</pre></details>`);
+  renderIcons(body);
+  if (textKind) openEditor();
+}
+function openEditor(initial) {
+  const text = initial !== undefined ? initial : (VW.data && VW.data.text) || "";
+  $("#vwBody").hidden = true; $("#vwEditor").hidden = false; $("#vwEdit").hidden = true;
+  $("#edText").value = text; VW.dirty = false;
+  $("#edStatus").textContent = edKind(VW.path) === "ducky" ? "BadUSB script: it types on whatever computer the Flipper is plugged into when you run it from the Flipper."
+    : edKind(VW.path) === "js" ? "JavaScript app for the Flipper. Save & run shows its output in the CLI tab." : "";
+  $("#edStatus").classList.remove("err");
+  $("#edRun").hidden = edKind(VW.path) !== "js";
+  edRender();
+  setTimeout(() => $("#edText").focus(), 30);
+}
+async function closeViewer() {
+  if (!$("#vwEditor").hidden && VW.dirty && !(await confirmDialog("Discard your changes?", "The edits haven't been saved to the Flipper.", "Discard"))) return;
+  $("#viewer").hidden = true; VW.path = null;
+}
+async function edSave(andRun) {
+  if (!devReady()) { needDevice(); return false; }
+  $("#edSave").disabled = $("#edRun").disabled = true;
+  $("#edStatus").classList.remove("err"); $("#edStatus").textContent = "Saving...";
+  const r = await api.files_save(VW.path, $("#edText").value);
+  $("#edSave").disabled = $("#edRun").disabled = false;
+  if (r.error) { $("#edStatus").classList.add("err"); $("#edStatus").textContent = r.error; return false; }
+  VW.dirty = false; VW.isNew = false;
+  $("#edStatus").textContent = `Saved to the Flipper (${fmtSize(r.size)}).`;
+  if (FM.sub === "files") loadFiles(FM.path);
+  if (andRun) {
+    $("#viewer").hidden = true;
+    setTab("flipper"); setSub("cli");
+    cliRun(`js ${VW.path}`);
+  }
+  return true;
+}
+/* ---------- SD card clean up: suggestions only; the user ticks, then confirms ---------- */
+async function openCleanup() {
+  if (!needDevice()) return;
+  VW.path = null; VW.data = null;
+  $("#vwTitle").textContent = "Clean up"; $("#vwSub").textContent = "Things on the SD card you probably don't need";
+  $("#vwEdit").hidden = true; $("#vwDownload").hidden = true; $("#vwEditor").hidden = true; $("#vwBody").hidden = false;
+  $("#vwBody").innerHTML = `<div class="skeleton"><span class="blk"></span>Looking through the SD card...</div>`;
+  $("#viewer").hidden = false;
+  if (!FL.apps) await loadFlipper();
+  const scan = await api.cleanup_scan();
+  if ($("#viewer").hidden) return;
+  if (scan.error) { $("#vwBody").innerHTML = `<div class="vw-empty"><b>Couldn't scan it</b><br>${esc(scan.error)}</div>`; return; }
+  const groups = [];
+  const apps = FL.apps || [], d = S.device;
+  const bad = apps.filter((a) => a.meta && a.meta.api && apiOk(a.meta.api, d.api) === false);
+  if (bad.length) groups.push({ title: "Apps that won't open on this firmware", why: "Built for another API. Rebuild the ones you want from the Library, or remove them.",
+    items: bad.map((a) => ({ path: a.path, label: (a.meta && a.meta.name) || prettyFile(a.file), sub: `API ${a.meta.api} · ${a.path}`, size: a.size })) });
+  const byFile = {};
+  apps.forEach((a) => (byFile[a.file.toLowerCase()] = byFile[a.file.toLowerCase()] || []).push(a));
+  const dups = Object.values(byFile).filter((l) => l.length > 1);
+  if (dups.length) groups.push({ title: "The same app in more than one folder", why: "Only one copy is needed. Tick the copies to remove; the newest version is listed first.",
+    items: dups.flatMap((l) => l.sort((x, y) => (vNewer((x.meta || {}).version || 0, (y.meta || {}).version || 0) ? -1 : 1))
+      .map((a, i) => ({ path: a.path, label: `${(a.meta && a.meta.name) || prettyFile(a.file)}${a.meta && a.meta.version ? " v" + a.meta.version : ""}`, sub: a.path + (i === 0 ? " · newest" : ""), size: a.size }))) });
+  if (scan.updates.length) groups.push({ title: "Firmware update packages", why: "Left over from earlier firmware updates. Safe to remove once an update has finished; they get downloaded again when needed.",
+    items: scan.updates.map((u) => ({ path: u.path, label: u.path.split("/").pop(), sub: `${u.files} file${u.files === 1 ? "" : "s"}`, size: u.size })) });
+  if (scan.temp.length) groups.push({ title: "Leftover temp files", why: "Half-finished copies from interrupted transfers.", pre: true,
+    items: scan.temp.map((t) => ({ path: t.path, label: t.path.split("/").pop(), sub: t.path, size: t.size })) });
+  const body = $("#vwBody");
+  if (!groups.length) { body.innerHTML = `<div class="vw-empty"><b>All tidy</b><br>No duplicates, no apps that won't open, no update packages or temp files.</div>`; return; }
+  const pick = new Set(groups.filter((g) => g.pre).flatMap((g) => g.items.map((i) => i.path)));
+  const render = () => {
+    const bytes = groups.flatMap((g) => g.items).filter((i) => pick.has(i.path)).reduce((s, i) => s + (i.size || 0), 0);
+    body.innerHTML = groups.map((g) => `<div class="vw-sec">${esc(g.title)}</div><div class="vw-note">${esc(g.why)}</div>
+      <div class="vw-btns">${g.items.map((it) => `<button class="pick cl-item ${pick.has(it.path) ? "on" : ""}" data-p="${esc(it.path)}"><span class="box">${pick.has(it.path) ? pixelIcon("check") : ""}</span>
+        <span style="min-width:0;flex:1;text-align:left"><div class="pick-name">${esc(it.label)}</div><div class="pick-sub">${esc(it.sub)}</div></span><small>${fmtSize(it.size || 0)}</small></button>`).join("")}</div>`).join("") +
+      `<div class="sheet-foot ed-foot"><span class="ed-status">${pick.size} ticked · ${fmtSize(bytes)}</span>
+       <button class="mini" id="clCancel">Close</button><button class="mini primary danger" id="clGo" ${pick.size ? "" : "disabled"}>Delete ${pick.size || ""}</button></div>`;
+    $$(".cl-item", body).forEach((b) => (b.onclick = () => { pick.has(b.dataset.p) ? pick.delete(b.dataset.p) : pick.add(b.dataset.p); render(); }));
+    $("#clCancel").onclick = () => { $("#viewer").hidden = true; };
+    $("#clGo").onclick = async () => {
+      const list = [...pick];
+      if (!(await confirmDialog(`Delete ${list.length} item${list.length > 1 ? "s" : ""} from your Flipper?`,
+        `${list.slice(0, 8).map((x) => `<code>${esc(x)}</code>`).join("<br>")}${list.length > 8 ? `<br>and ${list.length - 8} more` : ""}<br><br>This can't be undone.`, "Delete"))) return;
+      $("#viewer").hidden = true;
+      startJob("files", () => api.cleanup_delete(list));
+    };
+  };
+  render();
+}
+/* ---------- firmware update: prepare (backup, download, verify, copy, verify) then install on a second yes ---------- */
+const FWU = { info: null, pick: null };
+function fwCurrent(t, d) {          // is this package what the Flipper already runs?
+  if (!d || !d.connected || d.fw !== t.id) return false;
+  const v = String(t.version);
+  return v === d.version || v === d.commit || (d.commit && (v.startsWith(d.commit) || d.commit.startsWith(v)));
+}
+async function openFirmware() {
+  if (!needDevice()) return;
+  VW.path = null; VW.data = null;
+  $("#vwTitle").textContent = "Firmware"; $("#vwSub").textContent = "Update your Flipper with the official packages of each firmware";
+  $("#vwEdit").hidden = true; $("#vwDownload").hidden = true; $("#vwEditor").hidden = true; $("#vwBody").hidden = false;
+  $("#vwBody").innerHTML = `<div class="skeleton"><span class="blk"></span>Checking the firmware servers...</div>`;
+  $("#viewer").hidden = false;
+  const r = await api.fw_info();
+  if ($("#viewer").hidden) return;
+  FWU.info = r;
+  FWU.pick = FWU.pick && r.targets[FWU.pick] ? FWU.pick : (S.device.fw && r.targets[S.device.fw] ? S.device.fw : Object.keys(r.targets)[0]);
+  fwRender();
+}
+function fwRender() {
+  const r = FWU.info, d = S.device, body = $("#vwBody");
+  const order = ["official", "official-dev", "momentum", "momentum-dev", "unleashed", "unleashed-dev"].filter((k) => r.targets[k]);
+  const pw = r.power || {}, level = parseInt(pw["charge.level"] || "0", 10), charging = ["charging", "charged"].includes(pw["charge.state"]);
+  const t = r.targets[FWU.pick];
+  const cur = fwCurrent(t, d), sameFamily = (d.fw || "").split("-")[0] === t.id.split("-")[0];
+  const warn = [];
+  if (!sameFamily) warn.push(`You're switching from <b>${esc(d.fw_name || "your firmware")}</b> to <b>${esc(t.family)}</b>. Your settings and files stay, but apps built for ${esc(d.fw_name || "the old firmware")} won't open until you rebuild them (Library > Rebuild all, one click).`);
+  if (cur) warn.push("Your Flipper already runs this exact build, so updating would just reinstall it.");
+  if (pw["charge.level"] && !(level >= 50 || (charging && level >= 25))) warn.push(`Battery is at ${level}%. Charge it to at least 50% first: an update must not run out of power.`);
+  body.innerHTML = `
+    <dl class="vw-fields"><dt>Your Flipper runs</dt><dd>${esc(d.fw_name || "?")} · ${esc(d.version || "")}${d.commit ? " (" + esc(d.commit) + ")" : ""} · API ${esc(d.api || "?")}</dd>
+      ${pw["charge.level"] ? `<dt>Battery</dt><dd>${level}% · ${esc(pw["charge.state"] || "")}</dd>` : ""}</dl>
+    <div class="vw-sec">Pick a firmware</div>
+    <div class="fw-grid">${order.map((k) => { const x = r.targets[k]; return `<button class="fw-card ${k === FWU.pick ? "on" : ""}" data-k="${k}">
+      <b>${esc(x.family)} ${x.channel === "dev" ? "dev" : ""}</b><span>${esc(x.version)}</span><small>${esc(x.age)}${fwCurrent(x, d) ? " · installed" : ""}</small></button>`; }).join("")}</div>
+    ${warn.map((w) => `<div class="vw-note fw-warn">${w}</div>`).join("")}
+    ${t.changelog ? `<details class="vw-details"><summary>What's new in ${esc(t.version)}</summary><pre class="vw-raw">${esc(t.changelog)}</pre></details>` : ""}
+    <div class="vw-note">How it works: first I back up your SD card, download the official package and check its checksum, copy it to the Flipper and check every file there. Nothing is installed until you confirm a second time. The Flipper then verifies the package itself, restarts and updates (2-3 minutes). If anything ever goes wrong, its recovery mode (hold Left + Back, then qFlipper's Repair) can always restore it.</div>
+    <label class="toggle"><input type="checkbox" id="fwBackup" checked><span class="switch"><span class="knob"></span></span><span class="toggle-text">Back up my SD card first</span></label>
+    <div class="sheet-foot ed-foot"><span class="ed-status"></span><button class="mini" id="fwCancel">Close</button>
+      <button class="mini primary" id="fwGo" ${pw["charge.level"] && !(level >= 50 || (charging && level >= 25)) ? "disabled" : ""}>Prepare update to ${esc(t.family)} ${esc(t.version)}</button></div>`;
+  $$(".fw-card", body).forEach((b) => (b.onclick = () => { FWU.pick = b.dataset.k; fwRender(); }));
+  $("#fwCancel").onclick = () => { $("#viewer").hidden = true; };
+  $("#fwGo").onclick = () => {
+    const backup = $("#fwBackup").checked;
+    $("#viewer").hidden = true;
+    startJob("firmware", () => api.fw_prepare(FWU.pick, backup));
+  };
+}
+async function fwReady(info) {
+  const yes = await confirmDialog(`Install ${info.family} ${info.version}?`,
+    `The update is on your Flipper and every file checked out.<br><br>Your Flipper will restart and update itself for 2-3 minutes. <b>Keep it plugged in and don't press its buttons</b> until it's back.`, "Install now");
+  if (!yes) {
+    const r = await api.fw_discard(info.remote, !!info.existed);
+    toast(r.error ? `Couldn't remove the package: ${r.error}` : r.kept ? "Not installed. The package stays in /ext/update, as it was before." : "Not installed. The package was removed from the SD card.");
+    return;
+  }
+  LCD.say("Updating! Don't unplug me", 8000);
+  startJob("firmware", () => api.fw_install(info.remote, info.version));
+}
+async function fmNewFile() {
+  const name = await promptDialog("New file", "script.js", "Create");
+  if (!name) return;
+  if (/[\\/:*?"<>|]/.test(name)) { toast("That name has characters the SD card can't use"); return; }
+  VW.path = `${FM.path}/${name}`; VW.data = { text: "" }; VW.isNew = true;
+  $("#vwTitle").textContent = name; $("#vwSub").textContent = `${VW.path} · new`;
+  $("#vwDownload").hidden = true;
+  $("#viewer").hidden = false;
+  openEditor(edKind(VW.path) === "js" ? 'print("Hello from Flipper Workbench!");\n' : edKind(VW.path) === "ducky" ? "REM My script\nDELAY 500\nSTRING Hello\n" : "");
+  VW.dirty = true;
 }
 async function fmRename(e, p) {
   const name = await promptDialog(`Rename ${e.dir ? "folder" : "file"}`, e.name, "Rename");
@@ -1213,6 +1559,22 @@ async function bkRestore(b) {
     `Copies ${b.files} files (${fmtSize(b.bytes)}) back to your Flipper's SD card, replacing files with the same name. Nothing else on the SD card is deleted. About ${Math.max(1, Math.round(b.bytes / 110000 / 60))} min.`, "Restore");
   if (yes) startJob("restore", () => api.backup_restore(b.path));
 }
+/* the same default pick as the New backup sheet: captures and app data, no apps or security keys */
+const BK_SKIP = ["System Volume Information", "update", "u2f", "apps", "apps_manifests"];
+function bkDefaultPick(folders) {
+  return folders.filter((f) => !f.file && !f.name.startsWith(".") && !BK_SKIP.includes(f.name) &&
+    (BK_DEFAULT.includes(f.name) || f.size < 1048576)).map((f) => f.name);
+}
+async function autoBackup() {
+  if (S.busy || !devReady() || !S.autoBackup) return;
+  const due = await api.auto_backup_due();
+  if (!due.due || S.busy) return;
+  const plan = await api.auto_backup_plan();     // skips when nothing changed since the last one
+  if (plan.unchanged) { toast("Auto backup: nothing changed since the last one"); return; }
+  if (!plan.due || !plan.names || S.busy || !devReady()) return;
+  toast("Daily auto backup started: Stop in the progress bar if you need the Flipper");
+  startJob("backup", () => api.backup_start(plan.names, true));
+}
 async function bkNew() {
   if (!needDevice()) return;
   const box = $("#bkPick");
@@ -1221,10 +1583,8 @@ async function bkNew() {
   const r = await api.backup_folders();
   if (r.error) { box.innerHTML = `<div class="lib-note">${esc(r.error)}</div>`; return; }
   // never pre-pick system/rebuildable folders: Windows' own folder, dot-folders, firmware updates, apps, security keys
-  const SKIP = ["System Volume Information", "update", "u2f", "apps", "apps_manifests"];
   r.folders = r.folders.filter((f) => f.name !== "System Volume Information");
-  FM.pick = new Set(r.folders.filter((f) => !f.file && !f.name.startsWith(".") && !SKIP.includes(f.name) &&
-    (BK_DEFAULT.includes(f.name) || f.size < 1048576)).map((f) => f.name));
+  FM.pick = new Set(bkDefaultPick(r.folders));
   const render = () => {
     const chosen = r.folders.filter((f) => FM.pick.has(f.name));
     const bytes = chosen.reduce((s, f) => s + f.size, 0);
@@ -1364,9 +1724,9 @@ async function startJob(kind, call) {
   resetStages();
   setBuildButton(true);
   led("orange", true);
-  if (["send", "install", "files", "backup", "restore"].includes(kind)) {
+  if (["send", "install", "files", "backup", "restore", "firmware"].includes(kind)) {
     setStage("send");
-    if (MIR.state === "off") { LCD.play("radio", { fps: 4 }); LCD.say({ backup: "Backing up...", restore: "Restoring...", files: "Working on files..." }[kind] || "Beaming it over..."); }
+    if (MIR.state === "off") { LCD.play("radio", { fps: 4 }); LCD.say({ backup: "Backing up...", restore: "Restoring...", files: "Working on files...", firmware: "Firmware time..." }[kind] || "Beaming it over..."); }
     led("blue", true);
   }
   if (kind === "sdk") { LCD.play("laptop", { fps: 4 }); LCD.say(`Fetching the ${fwObj().short} SDK...`); }
@@ -1465,6 +1825,15 @@ function finished(e) {
   if (!FL.checking) $("#flProg").hidden = true;
   if (e.files_changed && FM.sub === "files" && S.tab === "flipper") loadFiles(FM.path);
   if (e.backup_done) { loadBackups(); toast(`Backup saved: ${e.backup_done.files} files`); }
+  if (e.fw_ready) setTimeout(() => fwReady(e.fw_ready), 300);
+  if (e.fw_done) {
+    toast(`Updated: ${e.fw_done.fw_name} ${e.fw_done.version}`);
+    setTimeout(async () => {
+      if (S.lib && S.lib.length && await confirmDialog("Rebuild your apps?", "Your Flipper has new firmware. Rebuild your Library's apps for it now, so they open?", "Rebuild all")) {
+        setTab("library"); setTimeout(() => $("#rebuildAll").click(), 300);
+      }
+    }, 1500);
+  }
   if (e.restored) toast(`Restored ${e.restored.files} files`);
   if (e.saved) toast("Saved. Opening the folder"), api.open_folder(e.saved);
   if (!e.ok && !e.cancelled && S.tab !== "build" && e.error) toast(e.error);
@@ -1552,6 +1921,7 @@ function bind() {
   });
   $("#mirrorBtn").onclick = toggleMirror;
   $("#shotBtn").onclick = screenshot;
+  $("#recBtn").onclick = recToggle;
   $$("#flSeg button").forEach((b) => (b.onclick = () => setSub(b.dataset.sub)));
   $("#fmUp").onclick = () => loadFiles(FM.path.split("/").slice(0, -1).join("/") || "/ext");
   $("#fmRefresh").onclick = () => loadFiles(FM.path);
@@ -1566,6 +1936,27 @@ function bind() {
     wake(); LCD.poke(); if (!S.busy) LCD.say(TIPS[Math.floor(Math.random() * TIPS.length)], 3000);
   };
   $("#cliInput").addEventListener("keydown", cliKey);
+  $("#bkAuto").onchange = () => { S.autoBackup = $("#bkAuto").checked; api.set_auto_backup(S.autoBackup); toast(S.autoBackup ? "Auto backup on: once a day when you plug in, last 5 kept" : "Auto backup off"); };
+  $("#vwClose").onclick = closeViewer;
+  $("#viewer").addEventListener("mousedown", (e) => { if (e.target.id === "viewer") closeViewer(); });
+  $("#vwEdit").onclick = () => openEditor();
+  $("#vwDownload").onclick = () => { const p = VW.path; $("#viewer").hidden = true; startJob("files", () => api.files_download(p)); };
+  $("#edCancel").onclick = async () => {
+    if (VW.isNew) { closeViewer(); return; }
+    if (VW.dirty && !(await confirmDialog("Discard your changes?", "The edits haven't been saved to the Flipper.", "Discard"))) return;
+    VW.dirty = false; openViewer(VW.path, VW.data && VW.data.size);
+  };
+  $("#edSave").onclick = () => edSave(false);
+  $("#edRun").onclick = () => edSave(true);
+  $("#edText").addEventListener("input", () => { VW.dirty = true; edRender(); });
+  $("#edText").addEventListener("scroll", () => { $("#edHl").scrollTop = $("#edText").scrollTop; $("#edHl").scrollLeft = $("#edText").scrollLeft; });
+  $("#edText").addEventListener("keydown", (e) => {
+    if (e.key === "Tab") { e.preventDefault(); document.execCommand("insertText", false, "    "); }
+    else if (e.ctrlKey && e.key.toLowerCase() === "s") { e.preventDefault(); edSave(false); }
+  });
+  $("#flClean").onclick = openCleanup;
+  $("#flFirmware").onclick = openFirmware;
+  $("#fmNewFile").onclick = () => (devReady() ? fmNewFile() : needDevice());
   $("#cliStop").onclick = () => api.cli_stop();
   $("#cliClear").onclick = () => { $("#cliOut").innerHTML = ""; $("#cliInput").focus(); };
   $("#logHead").onclick = () => openLog();
@@ -1600,6 +1991,7 @@ function bind() {
   document.addEventListener("keyup", (e) => { if (MIR.state === "live" && MIR_KEYS[e.key]) { e.preventDefault(); mirrorUp(MIR_KEYS[e.key]); } });
   document.addEventListener("keydown", (e) => {
     const typing = ["url", "search", "pickSearch", "flSearch", "cfInput", "cliInput"].includes(document.activeElement && document.activeElement.id);
+    if (!$("#viewer").hidden) { if (e.key === "Escape" && $("#confirm").hidden) { e.preventDefault(); closeViewer(); } return; }
     if (CLI.running && e.ctrlKey && e.key.toLowerCase() === "c" && !window.getSelection().toString()) { e.preventDefault(); api.cli_stop(); return; }
     if (e.key === "F11" && MIR.state === "live") { e.preventDefault(); setLcdFull(!document.body.classList.contains("lcd-full")); return; }
     if (e.key === "Escape" && document.body.classList.contains("lcd-full")) { e.preventDefault(); setLcdFull(false); return; }
@@ -1648,6 +2040,7 @@ async function boot() {
   initBar();
   const lcdReady = LCD.init();
   const info = await api.init();
+  S.autoBackup = info.auto_backup !== false; $("#bkAuto").checked = S.autoBackup;
   S.fws = info.firmwares; S.fw = info.fw; S.after = info.after || "none"; S.autoFw = info.auto_fw !== false;
   S.recent = info.recent || []; S.repoUrl = info.repo; S.outDir = info.out_dir;
   $("#ver").textContent = "v" + info.version;
@@ -1669,7 +2062,7 @@ async function boot() {
   api.start_background();
 }
 
-window.fb = { onEvents, onFrame, LCD, S, MIR, FM };
+window.fb = { onEvents, onFrame, LCD, S, MIR, FM, openViewer };
 let started = false;
 function start(a) { if (started) return; started = true; api = a; boot(); }
 window.addEventListener("pywebviewready", () => start(window.pywebview.api));

@@ -2,6 +2,31 @@
 
 Downloads for every version are on the [Releases](../../releases) page.
 
+## 1.7.0
+
+- **Firmware updates**: Official, Momentum and Unleashed, release or dev. Two steps: *Prepare*
+  (optional SD backup, download, SHA-256 check, copy to the Flipper with every file MD5-checked)
+  and *Install* after a second confirm, through the Flipper's own updater like qFlipper. Checks the
+  battery (50%+) and free space first, warns when switching firmware family, waits for the Flipper
+  to come back on the new version, then offers to rebuild your apps for it. A package that was
+  already on the SD card is left alone if you decide not to install.
+- **Capture viewer**: click a `.sub`, `.ir`, `.nfc`, `.rfid` or `.ibtn` file in Files to read it in
+  plain language: Sub-GHz frequency, modulation and a drawing of the signal; every IR button, with
+  *Send*; NFC type, UID and blocks; RFID and iButton keys.
+- **Script editor**: edit BadUSB and JavaScript files with syntax highlighting, *New file*, save to
+  the SD card (Ctrl+S; written to a temp file first, then swapped in), and *Save & run* for JS apps.
+- **GIF recording** of the mirrored screen (up to 60 s; repeated frames merged, Flipper colours).
+- **Auto backup** when you plug in your Flipper: once a day, skipped when nothing changed since the
+  last one (same files and sizes), the last 5 kept, your own backups never deleted. On by default;
+  switch it off in Backups.
+- **Catalog updates**: apps on your Flipper with a newer release in Flipper's official catalog get
+  a badge and a one-click update (built for your firmware, installed over the old one). Apps that
+  ship with your firmware (read from its official package) are left to firmware updates.
+- **Clean up**: duplicate apps, apps that won't open on your firmware, old update packages and
+  leftover temp files. Suggestions only; you tick what to delete and confirm.
+- **macOS**: the code now runs builds the macOS way and keeps data in Application Support, and
+  `tools/build_mac.sh` makes an `.app`. Untested so far.
+
 ## 1.6.0
 
 - **Renamed to Flipper Workbench.** It started as a builder and now also manages the apps, files,

@@ -56,11 +56,33 @@ def _entry(path):
             "url": url, "subdir": subdir}
 
 
+API = "https://catalog.flipperzero.one/api/v0/0/application"
+
+
+def _versions():
+    """appid -> latest released version, from Flipper's public catalog API (best effort)."""
+    out = {}
+    for page in range(6):
+        try:
+            batch = json.loads(_get(f"{API}?limit=500&offset={page * 500}&is_latest_release_version=true"))
+        except Exception:  # noqa: BLE001
+            break
+        for a in batch:
+            v = (a.get("current_version") or {}).get("version")
+            if a.get("alias") and v:
+                out[a["alias"]] = str(v)
+        if len(batch) < 500:
+            break
+    return out
+
+
 def load(cache_dir, force=False, log=lambda *_: None):
     cache = Path(cache_dir) / "catalog.json"
     if not force and cache.exists() and time.time() - cache.stat().st_mtime < MAX_AGE:
         try:
-            return json.loads(cache.read_text(encoding="utf-8"))
+            data = json.loads(cache.read_text(encoding="utf-8"))
+            if "versions" in data:          # caches from before 1.7.0 have no versions: refresh once
+                return data
         except Exception:  # noqa: BLE001
             pass
     log("Fetching the Flipper Apps Catalog index...")
@@ -70,7 +92,11 @@ def load(cache_dir, force=False, log=lambda *_: None):
     with ThreadPoolExecutor(max_workers=16) as pool:
         apps = [a for a in pool.map(_entry, paths) if a]
     apps.sort(key=lambda a: (a["category"], a["name"].lower()))
-    data = {"fetched": int(time.time()), "count": len(apps), "apps": apps}
+    versions = _versions()
+    for a in apps:
+        if a["id"] in versions:
+            a["version"] = versions[a["id"]]
+    data = {"fetched": int(time.time()), "count": len(apps), "apps": apps, "versions": len(versions)}
     cache.parent.mkdir(parents=True, exist_ok=True)
     cache.write_text(json.dumps(data), encoding="utf-8")
     return data

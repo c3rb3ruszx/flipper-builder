@@ -20,12 +20,15 @@ import zipfile
 from pathlib import Path
 
 APP_NAME = "Flipper Workbench"
-APP_VERSION = "1.6.0"
+APP_VERSION = "1.7.0"
 APP_ID = "c3rb3ruszx.FlipperWorkbench"
 REPO_URL = "https://github.com/c3rb3ruszx/flipper-workbench"
 FROZEN = getattr(sys, "frozen", False)
 # Frozen app: data lives next to the .exe. From source: next to this file.
 ROOT = Path(sys.executable).resolve().parent if FROZEN else Path(__file__).resolve().parent
+if FROZEN and sys.platform == "darwin":   # a Mac .app bundle is read-only: keep data in Application Support
+    ROOT = Path.home() / "Library" / "Application Support" / "Flipper Workbench"
+    ROOT.mkdir(parents=True, exist_ok=True)
 # FLIPPER_BUILDER_HOME is the pre-1.6 name, still honoured
 ROOT = Path(os.environ.get("FLIPPER_WORKBENCH_HOME") or os.environ.get("FLIPPER_BUILDER_HOME") or ROOT)
 BUNDLE = Path(getattr(sys, "_MEIPASS", Path(__file__).resolve().parent))
@@ -93,14 +96,23 @@ class Job:
         self.cancelled.set()
         p = self.proc
         if p and p.poll() is None:
-            subprocess.run(["taskkill", "/T", "/F", "/PID", str(p.pid)], capture_output=True,
-                           creationflags=NO_WINDOW)
+            if os.name == "nt":
+                subprocess.run(["taskkill", "/T", "/F", "/PID", str(p.pid)], capture_output=True,
+                               creationflags=NO_WINDOW)
+            else:   # macOS / Linux: the build runs in its own process group (start_new_session)
+                import signal
+                try:
+                    os.killpg(os.getpgid(p.pid), signal.SIGTERM)
+                except (ProcessLookupError, PermissionError):
+                    pass
 
 
 # ---------------------------------------------------------------- helpers
 
 def _stream(job, popen_args, on_line=None, **kw):
     job.check()
+    if os.name != "nt":
+        kw.setdefault("start_new_session", True)   # so Cancel can stop the whole build tree
     p = subprocess.Popen(popen_args, stdout=subprocess.PIPE, stderr=subprocess.STDOUT,
                          stdin=subprocess.DEVNULL, text=True, encoding="utf-8", errors="replace",
                          creationflags=NO_WINDOW, **kw)
@@ -452,14 +464,19 @@ def run_ufbt(job, app_dir, env, *targets, on_line=None):
     """What the `ufbt` command does: enter Flipper's toolchain env and run SCons.
     The toolchain ships its own Python, so this works from a frozen .exe too."""
     home = env["UFBT_STATE_DIR"]
-    fbtenv = Path(home) / "current" / "scripts" / "toolchain" / "fbtenv.cmd"
+    windows = os.name == "nt"
+    fbtenv = Path(home) / "current" / "scripts" / "toolchain" / ("fbtenv.cmd" if windows else "fbtenv.sh")
     scripts = Path(home) / "current" / "scripts" / "ufbt"
     if not fbtenv.exists() or not scripts.exists():
         raise BuildError("SDK is incomplete. Press 'Update SDK' and try again.")
-    args = " ".join(f'"{a}"' for a in ("-m", "SCons", "-Q", "--warn=target-not-built",
-                                       "-C", scripts, f"UFBT_APP_DIR={app_dir}", *targets))
-    cmdline = f'cmd /d /s /c "call "{fbtenv}" env & python {args}"'
+    scons = ("-m", "SCons", "-Q", "--warn=target-not-built", "-C", str(scripts), f"UFBT_APP_DIR={app_dir}", *targets)
     job.log("$ ufbt " + " ".join(targets))
+    if windows:
+        args = " ".join(f'"{a}"' for a in scons)
+        cmdline = f'cmd /d /s /c "call "{fbtenv}" env & python {args}"'
+    else:   # same as ufbt on macOS / Linux: source fbtenv.sh, then the toolchain's python3
+        import shlex
+        cmdline = ["/bin/bash", "-c", f'. {shlex.quote(str(fbtenv))} && python3 ' + " ".join(shlex.quote(a) for a in scons)]
     code, _ = _stream(job, cmdline, on_line=on_line, cwd=app_dir, env=env)
     return code
 
@@ -500,6 +517,8 @@ def send_to_flipper(job, app_dir, fw):
 
 def is_local(source):
     p = source.strip().strip('"')
+    if os.name != "nt" and p.startswith(("/", "~")):           # macOS / Linux paths
+        return Path(p).expanduser().is_dir()
     return bool(re.match(r"^[A-Za-z]:[\\/]|^\\\\", p)) and Path(p).is_dir()
 
 
@@ -552,7 +571,7 @@ def build(source, fw="official", send=False, job=None, install=False, only=None)
     local = is_local(source)
 
     if local:
-        src = base = Path(source.strip().strip('"')).resolve()
+        src = base = Path(source.strip().strip('"')).expanduser().resolve()
         repo, label = src.name, str(src)
         job.stage("fetch", src.name)
         log(f"== Local folder: {src}   Firmware: {FIRMWARES[fw][0]}")

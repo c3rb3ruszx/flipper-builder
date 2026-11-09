@@ -45,20 +45,33 @@ repo, solders while it compiles, DJs when it's done and cries when the build bre
   matching SDK, and warns you before building something that won't run on it.
 - **Install straight to it**: *Install to SD* copies the `.fap` into `apps/<Category>/`, or
   *Install & open* also launches it.
+- **Firmware updates**: update to the latest Official, Momentum or Unleashed (release or dev) in
+  two steps. *Prepare* backs up your SD card, downloads the official package, checks its SHA-256,
+  copies it to the Flipper and checks every file there; nothing is installed until you confirm
+  again. Then the Flipper's own updater takes over, exactly as with qFlipper. Battery and free space
+  are checked first, and afterwards one click rebuilds your apps for the new firmware.
 - **See what's on it**: the *On Flipper* tab lists every app on the SD card with its real name,
   version and icon, plus SD card space and which apps won't open on your firmware. Open, remove or
-  update any of them.
+  update any of them, from your Library or straight from Flipper's catalog when it has a newer version.
+- **Clean up**: finds the same app in two folders, apps that won't open on your firmware, old
+  firmware update packages and leftover temp files. You tick what goes; nothing is deleted on its own.
 - **Screen mirror + remote**: the app's LCD shows your Flipper's real screen, live. The d-pad and
   your keyboard (arrows, Enter, Backspace) press the real buttons, holding one does a long press,
   and one click saves a screenshot. Click the screen to go full screen, like qFlipper (Esc, F11 or
-  another click to leave).
+  another click to leave), and record it as a GIF (up to 60 s) to share.
 - **CLI**: your Flipper's own command line in a terminal tab. Type any command (`help`, `neofetch`,
   `storage info /ext`, `log`...) and the output streams back; Up/Down recall earlier commands, Stop
   or Ctrl+C ends commands that keep running. Commands that delete things, change settings or
   transmit ask first.
 - **Files**: browse the whole SD card; upload, download, rename, make folders and delete.
+- **Capture viewer**: click a `.sub`, `.ir`, `.nfc`, `.rfid` or `.ibtn` file to see it in plain
+  language: Sub-GHz frequency, modulation and the signal itself, every button of an IR remote (with
+  *Send* to fire one from the Flipper), an NFC card's type, UID and blocks.
+- **Script editor**: write and edit BadUSB scripts and JavaScript apps with syntax highlighting,
+  save them straight to the SD card (Ctrl+S), and *Save & run* a JS app with its output in the CLI.
 - **Backups**: one click backs up your captures, NFC/RFID dumps, IR remotes, BadUSB scripts and app
-  data to a zip on your PC, and puts them back later. Ideal before a firmware update or SD card swap.
+  data to a zip on your PC, and puts them back later. With auto backup on (the default), plugging in
+  your Flipper backs it up once a day; the last 5 automatic backups are kept, yours never deleted.
 
 ### Library & Discover
 
@@ -85,9 +98,12 @@ repo, solders while it compiles, DJs when it's done and cries when the build bre
 | ![Your Flipper's real screen, mirrored live in the app](assets/screenshot-mirror.png) | ![Browsing the SD card](assets/screenshot-files.png) |
 | **Mirror**: your Flipper's real screen, controlled from the app | **Files**: the whole SD card, with upload, download and backups |
 
-![The Flipper's own command line inside the app](assets/screenshot-cli.png)
-
-**CLI**: the Flipper's own command line, with history and a Stop button for streaming commands
+| | |
+|---|---|
+| ![The firmware updater](assets/screenshot-firmware.png) | ![An IR remote opened in the capture viewer](assets/screenshot-viewer.png) |
+| **Firmware**: official packages of every firmware, checked twice before anything is installed | **Capture viewer**: an IR remote's buttons, each one ready to send |
+| ![The script editor with a JavaScript app](assets/screenshot-editor.png) | ![The Flipper's own command line inside the app](assets/screenshot-cli.png) |
+| **Script editor**: BadUSB and JavaScript, saved straight to the SD card | **CLI**: the Flipper's own command line, with history and a Stop button |
 
 ## Install
 
@@ -102,7 +118,7 @@ Needs Windows and Python 3.10+. Double-click `Flipper Workbench.bat`, or:
 
 ```
 python -m venv .venv
-.venv\Scripts\pip install ufbt pywebview pyserial
+.venv\Scripts\pip install ufbt pywebview pyserial pillow
 .venv\Scripts\python flipper_workbench.py                                                    # GUI
 .venv\Scripts\python flipper_workbench.py <github-url-or-folder> --fw momentum-dev [--send]  # CLI
 ```
@@ -124,6 +140,20 @@ powershell -ExecutionPolicy Bypass -File tools\install.ps1       # optional: Sta
 change it) and registers a per-user uninstaller. No admin rights needed. It also takes over an old
 Flipper Builder install: SDKs, built apps, library and settings move to the new folder, and the old
 shortcuts and Apps entry are removed.
+
+## macOS (experimental, untested)
+
+The code is ready for macOS (builds use the toolchain's `fbtenv.sh`, like `ufbt` does there; data
+lives in `~/Library/Application Support/Flipper Workbench`), but no Mac build has been tried yet.
+To build one on a Mac:
+
+```
+python3 -m venv .venv
+.venv/bin/pip install ufbt pywebview pyserial pyinstaller pillow
+bash tools/build_mac.sh            # -> dist/Flipper Workbench.app
+```
+
+The app isn't signed, so open it the first time with right-click > Open. Reports welcome.
 
 ## How it works
 

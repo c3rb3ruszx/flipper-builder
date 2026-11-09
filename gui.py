@@ -11,6 +11,7 @@ import os
 import queue
 import re
 import subprocess
+import sys
 import threading
 import time
 import urllib.request
@@ -81,6 +82,69 @@ def _github_link(text):
 
 def _vtuple(v):
     return tuple(int(x) for x in re.findall(r"\d+", v or "0")[:3])
+
+
+# ---------------------------------------------------------------- files on this computer
+
+def _reveal(path):
+    """Show a file selected in Explorer / Finder, or open a folder."""
+    p = Path(path)
+    try:
+        if sys.platform == "darwin":
+            subprocess.Popen(["open", "-R", str(p)] if p.is_file() else ["open", str(p)])
+        elif os.name == "nt":
+            if p.is_file():
+                subprocess.Popen(["explorer", "/select,", str(p)])
+            else:
+                os.startfile(p)  # noqa: S606
+        else:
+            subprocess.Popen(["xdg-open", str(p.parent if p.is_file() else p)])
+    except OSError:
+        pass
+
+
+GIF_BG, GIF_FG = (255, 140, 41), (0, 0, 0)   # Flipper LCD orange, black pixels
+
+
+def _frame_image(data, orient, scale=4, pad=4):
+    """One 1024-byte Flipper frame (8 pages x 128 columns, bit 0 on top) as a scaled 2-colour image."""
+    from PIL import Image
+    px = bytearray(128 * 64)
+    for y in range(64):
+        page, bit = (y >> 3) * 128, y & 7
+        row = y * 128
+        for x in range(128):
+            if (data[page + x] >> bit) & 1:
+                px[row + x] = 1
+    img = Image.frombytes("P", (128, 64), bytes(px))
+    if orient == 1:
+        img = img.rotate(180)
+    img = img.resize((128 * scale, 64 * scale), Image.NEAREST)
+    out = Image.new("P", (128 * scale + pad * 2 * scale, 64 * scale + pad * 2 * scale), 0)
+    out.paste(img, (pad * scale, pad * scale))
+    out.putpalette(list(GIF_BG) + list(GIF_FG))
+    return out
+
+
+def save_gif(frames, t_end, folder):
+    """frames: [(time, 1024 bytes, orient)], oldest first. Identical frames in a row are merged."""
+    if not frames:
+        raise ValueError("No frames: the Flipper's screen didn't send anything.")
+    folder = Path(folder)
+    folder.mkdir(parents=True, exist_ok=True)
+    merged = []                                   # [(data, orient, start time)]
+    for t, data, orient in frames:
+        if merged and merged[-1][0] == data and merged[-1][1] == orient:
+            continue
+        merged.append((data, orient, t))
+    images, durations = [], []
+    for i, (data, orient, t) in enumerate(merged):
+        nxt = merged[i + 1][2] if i + 1 < len(merged) else max(t_end, t + 0.5)
+        images.append(_frame_image(data, orient))
+        durations.append(max(20, int(round((nxt - t) * 1000 / 10)) * 10))   # GIF timing is in 10 ms steps
+    p = folder / time.strftime("flipper_%Y-%m-%d_%H%M%S.gif")
+    images[0].save(p, save_all=True, append_images=images[1:], duration=durations, loop=0, optimize=False, disposal=1)
+    return p
 
 
 # ---------------------------------------------------------------- API exposed to JS
@@ -195,10 +259,15 @@ class Api:
             "out_dir": str(fb.OUT_DIR),
             "device": self._device,
             "library_count": len(fb.load_library()),
+            "auto_backup": s.get("auto_backup", True),
         }
 
     def clipboard(self):
         return _github_link(_clip_get())
+
+    def set_auto_backup(self, on):
+        fb.save_settings(auto_backup=bool(on))
+        return {"ok": True}
 
     def set_prefs(self, fw=None, after=None, auto_fw=None):
         kw = {}
@@ -577,6 +646,254 @@ class Api:
         except (fb.BuildError, device.DeviceError) as e:
             return {"error": str(e)}
 
+    def files_view(self, path, size=0):
+        """Read a file off the SD card for the viewer: parsed captures, plain text, or 'binary'."""
+        import capture
+        import device
+        if size and size > capture.MAX_VIEW:
+            return {"too_big": True, "size": size}
+        try:
+            data = device.read_file(self._port(), fb.sdk_dirs(), path, size)
+        except (fb.BuildError, device.DeviceError) as e:
+            return {"error": str(e)}
+        except Exception as e:  # noqa: BLE001  (storage errors from the SDK client)
+            return {"error": f"Couldn't read it: {e}"}
+        if not capture.is_text(data):
+            return {"binary": True, "size": len(data)}
+        res = capture.parse(path.rsplit("/", 1)[-1], data.decode("utf-8", "replace"), path)
+        res["size"] = len(data)
+        return res
+
+    def files_save(self, path, text):
+        """Save edited text back to the SD card (the editor asks first)."""
+        import device
+        try:
+            n = device.write_file(self._port(), fb.sdk_dirs(), path, text.encode("utf-8"))
+            return {"ok": True, "size": n}
+        except (fb.BuildError, device.DeviceError) as e:
+            return {"error": str(e)}
+        except Exception as e:  # noqa: BLE001
+            return {"error": f"Couldn't save it: {e}"}
+
+    def ir_send(self, command):
+        """Fire one IR button from a .ir file (the command line comes from capture.parse, checked here)."""
+        if not re.fullmatch(r"ir tx (?:[A-Za-z0-9]+ 0x[0-9a-fA-F]+ 0x[0-9a-fA-F]+|RAW F:\d+ DC:\d+(?: \d+){1,512})", command or ""):
+            return {"error": "That isn't an IR button."}
+        import device
+        out = []
+        try:
+            device.cli_run(self._port(), fb.sdk_dirs(), command, out.append, limit=15)
+        except (fb.BuildError, device.DeviceError) as e:
+            return {"error": str(e)}
+        text = "".join(out).strip()
+        return {"error": text} if text and ("error" in text.lower() or "usage" in text.lower()) else {"ok": True}
+
+    # ------------------------------------------------ firmware update
+    FW_DIR = fb.ROOT / ".cache" / "firmware"
+    BK_DEFAULT = {"subghz", "nfc", "lfrfid", "infrared", "badusb", "ibutton", "apps_data", "music_player",
+                  "wav_player", "subghz_remote"}
+    BK_SKIP = {"System Volume Information", "update", "u2f", "apps", "apps_manifests"}
+
+    def fw_info(self):
+        """Latest packages per firmware, plus what the Flipper runs and its battery."""
+        import device
+        import firmware
+        res = firmware.available()
+        for t in res["targets"].values():
+            t["age"] = firmware.describe_age(t.get("timestamp"))
+        dev = self._device
+        res["device"] = dev
+        if dev.get("connected") and not dev.get("error") and not self._job:
+            try:
+                res["power"] = device.device_power(self._port(), fb.sdk_dirs())
+            except Exception:  # noqa: BLE001
+                res["power"] = {}
+        return res
+
+    def _battery_ok(self):
+        import device
+        p = device.device_power(self._port(), fb.sdk_dirs())
+        try:
+            level = int(p.get("charge.level", "0"))
+        except ValueError:
+            level = 0
+        charging = p.get("charge.state", "") in ("charging", "charged")
+        return level >= 50 or (charging and level >= 25), level
+
+    def fw_prepare(self, fw_id, backup=True):
+        """Backup (optional), download + SHA-256 check, unpack, copy to /ext/update and MD5-check every file.
+        Installs nothing: fw_install does that after the user confirms again."""
+        import device
+        import firmware
+        dev = dict(self._device)
+        if not dev.get("connected") or dev.get("error"):
+            return {"error": "Plug in your Flipper (and close qFlipper) first."}
+        if getattr(self, "_mirror", None):
+            self.mirror_stop()
+
+        def work(job):
+            job.stage("fetch", "firmware index")
+            avail = firmware.available()["targets"]
+            target = avail.get(fw_id)
+            if not target:
+                raise fb.BuildError("That firmware has no update package right now.")
+            ok, level = self._battery_ok()
+            if not ok:
+                raise fb.BuildError(f"Battery is at {level}%. Charge your Flipper to at least 50% (or plug it into a charger) before updating.")
+            job.log(f"== Battery {level}%: OK")
+            if backup:
+                job.stage("send", "backup first")
+                folders = device.folder_sizes(self._port(), fb.sdk_dirs())
+                names = [f["name"] for f in folders if not f.get("file") and not f["name"].startswith(".")
+                         and f["name"] not in self.BK_SKIP and (f["name"] in self.BK_DEFAULT or f["size"] < 1048576)]
+                if names:
+                    label = re.sub(r"[^\w\-]+", "", dev.get("name") or "Flipper") or "Flipper"
+                    path = self.BACKUP_DIR / f"{label}_{time.strftime('%Y-%m-%d_%H%M')}_before-update.zip"
+                    r = device.backup(self._port(), fb.sdk_dirs(), names, path,
+                                      device_info={k: dev.get(k) for k in ("name", "fw_name", "version", "commit", "api")},
+                                      progress=self._fprog("Backing up"), should_stop=job.cancelled.is_set)
+                    job.log(f"OK Backup saved: {r['path']} ({r['files']} files)")
+            job.stage("fetch", f"{target['family']} {target['version']}")
+            job.log(f"== Downloading {target['url']}")
+            try:
+                tgz = firmware.download(target, self.FW_DIR, progress=lambda d, t: self._fprog("Downloading")(d, t),
+                                        should_stop=job.cancelled.is_set)
+            except InterruptedError:
+                raise fb.Cancelled("Cancelled.")
+            except Exception as e:  # noqa: BLE001
+                raise fb.BuildError(f"Download failed: {e}")
+            job.log("OK SHA-256 matches the firmware index")
+            job.stage("scan", "unpacking")
+            try:
+                pkg = firmware.extract(tgz, self.FW_DIR / "unpacked")
+            except Exception as e:  # noqa: BLE001
+                raise fb.BuildError(str(e))
+            size = sum(f.stat().st_size for f in pkg.rglob("*") if f.is_file())
+            free = device.sd_free_kib(self._port(), fb.sdk_dirs())
+            if free is not None and free * 1024 < size * 3:
+                raise fb.BuildError(f"Not enough free space on the SD card for the update ({size // 1048576} MB needed, x3 to be safe).")
+            job.stage("send", "copying the update")
+            remote_name = f"/ext/update/{pkg.name}"
+            existed = device.storage_call(self._port(), fb.sdk_dirs(), lambda m, st: st.exist_dir(remote_name))
+            try:
+                remote = device.upload_update(self._port(), fb.sdk_dirs(), pkg, progress=self._fprog("Copying the update"),
+                                              should_stop=job.cancelled.is_set)
+            except device.DeviceError as e:
+                raise fb.BuildError(str(e))
+            job.log(f"OK {pkg.name} copied to {remote}, every file checked (MD5)")
+            return {"send_only": True, "quiet": True,
+                    "fw_ready": {"remote": remote, "fw": fw_id, "family": target["family"], "channel": target["channel"],
+                                 "version": target["version"], "existed": bool(existed)}}
+        return self._run_job("firmware", work)
+
+    def fw_bundled(self):
+        """Apps that ship with the firmware the Flipper runs (they're updated with the firmware, not from
+        the catalog). Read from the official package of that exact build, cached per version.
+        {"apps": None} when it can't be known."""
+        import firmware
+        dev = dict(self._device)
+        fw = dev.get("fw")
+        if not dev.get("connected") or not fw:
+            return {"apps": None}
+        key = re.sub(r"[^\w.\-]+", "_", f"{fw}_{dev.get('version')}_{dev.get('commit')}")
+        cache = self.FW_DIR / f"bundled_{key}.json"
+        try:
+            return {"apps": json.loads(cache.read_text(encoding="utf-8"))}
+        except Exception:  # noqa: BLE001
+            pass
+        try:
+            target = firmware.available()["targets"].get(fw)
+            if not target or not firmware.matches(target, dev):
+                return {"apps": None}           # an older build: its package isn't in the index any more
+            apps = firmware.bundled_apps(firmware.download(target, self.FW_DIR))
+        except Exception:  # noqa: BLE001
+            return {"apps": None}
+        self.FW_DIR.mkdir(parents=True, exist_ok=True)
+        cache.write_text(json.dumps(apps), encoding="utf-8")
+        return {"apps": apps}
+
+    def fw_discard(self, remote, existed=False):
+        """Remove a prepared package the user chose not to install. A package that was already on the
+        SD card before (e.g. from qFlipper) is left where it was."""
+        import device
+        if not re.fullmatch(r"/ext/update/[\w.\-]+", remote or ""):
+            return {"error": "Unexpected folder."}
+        if existed:
+            return {"ok": True, "kept": True}
+        try:
+            device.remove_tree(self._port(), fb.sdk_dirs(), remote)
+            return {"ok": True}
+        except (fb.BuildError, device.DeviceError) as e:
+            return {"error": str(e)}
+
+    def fw_install(self, remote, version):
+        """Start the Flipper's own updater, then wait for it to come back on the new version."""
+        import device
+        if not re.fullmatch(r"/ext/update/[\w.\-]+", remote or ""):
+            return {"error": "Unexpected folder."}
+
+        def work(job):
+            ok, level = self._battery_ok()
+            if not ok:
+                raise fb.BuildError(f"Battery is at {level}%. Charge it to at least 50% first.")
+            job.stage("build", "installing")
+            job.log(f"== update install {remote}/update.fuf")
+            try:
+                device.start_update(self._port(), fb.sdk_dirs(), remote)
+            except device.DeviceError as e:
+                raise fb.BuildError(str(e))
+            job.log("OK The Flipper accepted the package and is restarting into its updater. Don't unplug it.")
+            self._emit("fw_state", state="installing")
+            t0, gone = time.time(), False
+            while time.time() - t0 < 600:
+                time.sleep(2)
+                self._device_refresh.set()
+                d = self._device
+                if not d.get("connected"):
+                    gone = True
+                elif gone and not d.get("error") and d.get("version"):
+                    v = str(version)
+                    if v in (d.get("version"), d.get("commit")) or (d.get("commit") or "").startswith(v) or v.startswith(d.get("commit") or "~"):
+                        job.log(f"OK Back on {d.get('fw_name')} {d.get('version')} ({d.get('commit')})")
+                        return {"send_only": True, "quiet": True, "fw_done": {"version": d.get("version"), "fw_name": d.get("fw_name")}}
+                    if time.time() - t0 > 240:
+                        raise fb.BuildError(f"The Flipper is back but reports {d.get('version')} ({d.get('commit')}), not {version}. "
+                                            "Check its screen; you can run the update again.")
+            raise fb.BuildError("The Flipper hasn't come back after 10 minutes. Leave it plugged in and look at its screen. "
+                                "If it's stuck, hold Left + Back to restart it; qFlipper's Repair can always restore it.")
+        return self._run_job("firmware", work)
+
+    def cleanup_scan(self):
+        import device
+        try:
+            return device.cleanup_scan(self._port(), fb.sdk_dirs())
+        except (fb.BuildError, device.DeviceError) as e:
+            return {"error": str(e)}
+        except Exception as e:  # noqa: BLE001
+            return {"error": f"Couldn't scan the SD card: {e}"}
+
+    def cleanup_delete(self, paths):
+        """Delete what the user ticked in Clean up (the UI confirms first). Only SD card paths, never system folders."""
+        keep = ("/ext", "/ext/apps", "/ext/update", "/ext/apps_data", "/int")
+        paths = [p for p in paths if isinstance(p, str) and p.startswith("/ext/") and ".." not in p
+                 and p.rstrip("/") not in keep]
+        if not paths:
+            return {"error": "Nothing to delete."}
+
+        def work(job):
+            import device
+            job.stage("send", f"{len(paths)} item(s)")
+            for i, p in enumerate(paths, 1):
+                if job.cancelled.is_set():
+                    break
+                try:
+                    device.remove_tree(self._port(), fb.sdk_dirs(), p)
+                except device.DeviceError as e:
+                    raise fb.BuildError(f"{p}: {e}")
+                job.log(f"OK Deleted {p}")
+            return {"files_changed": True, "flipper_changed": True, "send_only": True, "quiet": True, "cleaned": len(paths)}
+        return self._run_job("files", work)
+
     def files_mkdir(self, path):
         import device
         try:
@@ -670,14 +987,64 @@ class Api:
             out.append({"path": str(p), "name": p.stem, "size": p.stat().st_size, "mtime": int(p.stat().st_mtime), **info})
         return {"backups": out, "dir": str(self.BACKUP_DIR)}
 
-    def backup_start(self, names):
+    AUTO_KEEP = 5          # automatic backups kept per Flipper; manual ones are never pruned
+    AUTO_EVERY = 20 * 3600  # at most one automatic backup per Flipper a day
+
+    def auto_backup_due(self):
+        """Should plugging in this Flipper start an automatic backup now?"""
+        s = fb.load_settings()
+        dev = self._device
+        if not s.get("auto_backup", True) or not dev.get("connected") or dev.get("error") or self._job:
+            return {"due": False}
+        last = (s.get("auto_backup_last") or {}).get(dev.get("name") or "Flipper", 0)
+        return {"due": time.time() - last > self.AUTO_EVERY, "last": last}
+
+    def auto_backup_plan(self):
+        """What a due automatic backup would save, or why it's skipped. Skips when nothing changed
+        (same files and sizes) since this Flipper's last automatic backup."""
+        import device
+        due = self.auto_backup_due()
+        if not due.get("due"):
+            return {"due": False}
+        try:
+            folders = device.folder_sizes(self._port(), fb.sdk_dirs())
+            names = [f["name"] for f in folders if not f.get("file") and not f["name"].startswith(".")
+                     and f["name"] not in self.BK_SKIP and (f["name"] in self.BK_DEFAULT or f["size"] < 1048576)]
+            if not names:
+                return {"due": False}
+            label = re.sub(r"[^\w\-]+", "", self._device.get("name") or "Flipper") or "Flipper"
+            autos = sorted(self.BACKUP_DIR.glob(f"{label}_*_auto.zip"), key=lambda p: p.stat().st_mtime, reverse=True)
+            if autos:
+                last = device.backup_index(autos[0])
+                if last is not None and last == [tuple(x) for x in device.list_files(self._port(), fb.sdk_dirs(), names)]:
+                    stamp = fb.load_settings().get("auto_backup_last") or {}
+                    stamp[self._device.get("name") or "Flipper"] = int(time.time())
+                    fb.save_settings(auto_backup_last=stamp)
+                    return {"due": False, "unchanged": True}
+            return {"due": True, "names": names}
+        except Exception as e:  # noqa: BLE001
+            return {"due": False, "error": str(e)}
+
+    def _prune_auto(self, label):
+        autos = sorted(self.BACKUP_DIR.glob(f"{label}_*_auto.zip"), key=lambda p: p.stat().st_mtime, reverse=True)
+        for old in autos[self.AUTO_KEEP:]:
+            try:
+                old.unlink()
+            except OSError:
+                pass
+
+    def backup_start(self, names, auto=False):
         names = [n for n in names if n and "/" not in n and ".." not in n]
         if not names:
             return {"error": "Pick at least one folder."}
         dev = dict(self._device)
         stamp = time.strftime("%Y-%m-%d_%H%M")
         label = re.sub(r"[^\w\-]+", "", dev.get("name") or "Flipper") or "Flipper"
-        path = self.BACKUP_DIR / f"{label}_{stamp}.zip"
+        path = self.BACKUP_DIR / f"{label}_{stamp}{'_auto' if auto else ''}.zip"
+        if auto:   # mark it now, so a failed or cancelled run doesn't retry on every plug-in
+            last = fb.load_settings().get("auto_backup_last") or {}
+            last[dev.get("name") or "Flipper"] = int(time.time())
+            fb.save_settings(auto_backup_last=last)
 
         def work(job):
             import device
@@ -689,6 +1056,8 @@ class Api:
             except device.DeviceError as e:
                 raise fb.BuildError(str(e))
             job.log(f"OK Backup saved: {r['path']} ({r['files']} files)")
+            if auto:
+                self._prune_auto(label)
             return {"send_only": True, "quiet": True, "backup_done": r}
         return self._run_job("backup", work)
 
@@ -730,6 +1099,9 @@ class Api:
         def on_frame(data, orient):
             self._frame = (data, orient)
             self._frame_seq += 1
+            rec = getattr(self, "_rec", None)
+            if rec is not None and len(rec) < 3000:
+                rec.append((time.time(), bytes(data), orient))
 
         def on_state(state, detail=""):
             self._emit("mirror", state=state, detail=detail)
@@ -772,6 +1144,32 @@ class Api:
                 return {"error": "bad key"}
             return {"ok": True}
         return {"error": "not mirroring"}
+
+    # ------------------------------------------------ GIF recording of the mirrored screen
+    REC_MAX = 60   # seconds
+
+    def record_start(self):
+        m = getattr(self, "_mirror", None)
+        if not m or not m.running:
+            return {"error": "Start mirroring first."}
+        self._rec_t0 = time.time()
+        self._rec = []
+        if self._frame is not None:                 # the screen as it is now, even if nothing moves
+            self._rec.append((self._rec_t0, bytes(self._frame[0]), self._frame[1]))
+        return {"ok": True, "max": self.REC_MAX}
+
+    def record_stop(self, save=True):
+        rec, self._rec = getattr(self, "_rec", None), None
+        if not rec or not save:
+            return {"cancelled": True}
+        t_end = min(time.time(), self._rec_t0 + self.REC_MAX)
+        rec = [r for r in rec if r[0] <= t_end]
+        try:
+            p = save_gif(rec, t_end, fb.ROOT / "recordings")
+        except Exception as e:  # noqa: BLE001
+            return {"error": f"Couldn't save the GIF: {e}"}
+        _reveal(p)
+        return {"path": str(p), "frames": len(rec), "seconds": round(t_end - self._rec_t0, 1)}
 
     def set_fullscreen(self, on):
         """Real full screen for the mirrored Flipper screen (the page shows only the screen meanwhile)."""
@@ -825,7 +1223,7 @@ class Api:
         d.mkdir(parents=True, exist_ok=True)
         p = d / time.strftime("flipper_%Y-%m-%d_%H%M%S.png")
         p.write_bytes(base64.b64decode(png_b64.split(",", 1)[-1]))
-        subprocess.Popen(["explorer", "/select,", str(p)])
+        _reveal(p)
         return {"path": str(p)}
 
     # ------------------------------------------------ app update check
@@ -854,11 +1252,9 @@ class Api:
 
     def open_folder(self, path):
         p = Path(path)
-        if p.is_file():
-            subprocess.Popen(["explorer", "/select,", str(p)])
-        else:
+        if not p.is_file():
             p.mkdir(parents=True, exist_ok=True)
-            os.startfile(p)
+        _reveal(p)
         return True
 
     def open_url(self, url):
@@ -910,7 +1306,7 @@ def main():
     api._window = window
     window.events.shown += lambda: _dark_title_bar(window)
     try:
-        webview.start(gui="edgechromium", http_server=True, debug=bool(os.environ.get("FB_DEBUG")),
+        webview.start(gui="edgechromium" if os.name == "nt" else None, http_server=True, debug=bool(os.environ.get("FB_DEBUG")),
                       icon=str(fb.ICON))
     except Exception as e:  # noqa: BLE001
         _no_webview2_message(e)
