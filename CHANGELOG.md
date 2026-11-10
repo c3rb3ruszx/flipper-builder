@@ -2,6 +2,19 @@
 
 Downloads for every version are on the [Releases](../../releases) page.
 
+## 1.10.0
+
+- **NFC maker** (On Flipper > Tools): build an NFC tag from scratch. Choose a link, text, Wi-Fi network,
+  contact card, phone call, text message, email, map location, Android app or Bluetooth pairing, fill in
+  the fields and Workbench writes an NTAG213, NTAG215 or NTAG216 `.nfc` file in Flipper's own format.
+  Put several records on one tag; a capacity meter shows how much room is left and suggests a bigger
+  tag when it doesn't fit. *Save to Flipper*, *Save & emulate* (opens it in the NFC app right away) or
+  *Save to PC*. A tag with the same name is only replaced after you confirm.
+- Saving a tag waits until no app is open on the Flipper (writing under a running NFC app can restart
+  it), and says so instead.
+- Fix: opening a file in an app from Workbench passed the path in quotes, which the NFC app could not
+  read ("Cannot load key file").
+
 ## 1.9.2
 
 - Fix: with the screen mirrored (now on by itself in 1.9.1), opening a second folder, the SD map or

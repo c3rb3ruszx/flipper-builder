@@ -335,6 +335,12 @@ function mockApi() {
     ir_files: async () => ({ files: ["/ext/infrared/LG.ir"] }),
     music_convert: async () => ({ title: "Nokia", name: "Nokia", bpm: 180, notes: 13, fmf: "Filetype: Flipper Music Format", preview: [[1318.5, 167], [1174.7, 167], [740, 333]] }),
     music_pick: async () => ({ cancelled: true }), music_save: async () => ({ ok: true, path: "/ext/music_player/Nokia.fmf" }),
+    nfc_make: async (items, tag) => { await sleep(80); const cap = { NTAG213: 144, NTAG215: 496, NTAG216: 872 }[tag];
+      const bytes = items.reduce((s, it) => s + 12 + JSON.stringify(it).length, 0);
+      if (bytes > cap) return { error: `That needs ${bytes} bytes but an ${tag} holds ${cap}.` };
+      return { nfc: "Filetype: Flipper NFC device", tag, uid: "04 A1 B2 C3 D4 E5 86", bytes, capacity: cap,
+        does: items.map((it) => ({ url: `Opens ${it.url}`, wifi: `Offers to join the Wi-Fi network "${it.ssid}"`, text: "Shows the text" }[it.kind] || `Does a ${it.kind} thing`)) }; },
+    nfc_save: async () => ({ ok: true, path: "/ext/nfc/Tag.nfc" }), nfc_export: async () => ({ ok: true }),
     anim_list: async () => ({ made: [] }), anim_pick: async () => ({ cancelled: true }),
     packs_list: async () => ({ packs: [{ id: "a", name: "Akira", author: "Kuronons", anims: 1, icons: 3, previews: [] }] }),
     sync_pairs: async () => ({ pairs: [{ local: "D:\\badusb", remote: "/ext/badusb", mode: "both", delete: false }] }),
@@ -1677,6 +1683,100 @@ function toolsShow() {
   animListMade(); syRender();
   if ($('.tool[data-tool="packs"]').open) packsLoad();
 }
+/* ---------- NFC maker ---------- */
+const NF_KINDS = {
+  url: { label: "Link", fields: [["url", "Link", "https://example.com", "full"]] },
+  text: { label: "Text", fields: [["text", "Text", "Anything you want a phone to show", "full area"], ["lang", "Language code", "en"]] },
+  wifi: { label: "Wi-Fi", fields: [["ssid", "Network name", "MyNetwork"], ["password", "Password", ""],
+    ["auth", "Security", "", "select", [["wpa2-personal", "WPA2 (most networks)"], ["wpa-personal", "WPA"], ["open", "Open (no password)"], ["shared", "WEP / shared"]]],
+    ["enc", "Encryption", "", "select", [["aes", "AES"], ["tkip", "TKIP"], ["wep", "WEP"], ["none", "None"]]]] },
+  contact: { label: "Contact", fields: [["first", "First name", ""], ["last", "Last name", ""], ["phone", "Phone", "+1 555 0100"],
+    ["email", "Email", "name@example.com"], ["org", "Company", ""], ["url", "Website", "https://"]] },
+  phone: { label: "Call", fields: [["number", "Phone number", "+1 555 0100", "full"]] },
+  sms: { label: "Text message", fields: [["number", "Phone number", "+1 555 0100"], ["body", "Message", ""]] },
+  email: { label: "Email", fields: [["to", "To", "name@example.com"], ["subject", "Subject", ""], ["body", "Body", "", "full area"]] },
+  geo: { label: "Location", fields: [["lat", "Latitude", "48.8584"], ["lon", "Longitude", "2.2945"]] },
+  app: { label: "Android app", fields: [["package", "Package name", "com.spotify.music", "full"]] },
+  bluetooth: { label: "Bluetooth pair", fields: [["mac", "Device address", "00:11:22:AA:BB:CC", "full"]] },
+};
+const NF = { kind: "url", recs: [], last: null, t: null };
+function nfStatus(t, err) { $("#nfStatus").textContent = t || ""; $("#nfStatus").classList.toggle("err", !!err); }
+function nfRenderKinds() {
+  $("#nfKinds").innerHTML = Object.entries(NF_KINDS).map(([k, v]) => `<button class="fchip ${k === NF.kind ? "on" : ""}" data-k="${k}">${esc(v.label)}</button>`).join("");
+  $$("#nfKinds .fchip").forEach((b) => (b.onclick = () => { NF.kind = b.dataset.k; nfRenderKinds(); nfRenderFields(); nfUpdate(); }));
+}
+function nfRenderFields() {
+  $("#nfFields").innerHTML = NF_KINDS[NF.kind].fields.map(([id, label, ph, cls, opts]) => {
+    const full = (cls || "").includes("full") ? "full" : "";
+    let input;
+    if (cls === "select") input = `<select data-f="${id}">${opts.map(([v, t]) => `<option value="${v}">${esc(t)}</option>`).join("")}</select>`;
+    else if ((cls || "").includes("area")) input = `<textarea data-f="${id}" spellcheck="false" placeholder="${esc(ph)}"></textarea>`;
+    else input = `<input type="text" data-f="${id}" spellcheck="false" placeholder="${esc(ph)}"${id === "lang" ? ' value="en"' : ""}>`;
+    return `<label class="${full}">${esc(label)}${input}</label>`;
+  }).join("");
+  $$("#nfFields [data-f]").forEach((el) => el.addEventListener("input", nfUpdate));
+  const first = $("#nfFields [data-f]"); if (first) setTimeout(() => first.focus(), 30);
+}
+function nfCurrent() {
+  const it = { kind: NF.kind };
+  $$("#nfFields [data-f]").forEach((el) => (it[el.dataset.f] = el.value));
+  return it;
+}
+function nfFilled(it) { return Object.entries(it).some(([k, v]) => k !== "kind" && k !== "lang" && k !== "auth" && k !== "enc" && String(v).trim()); }
+function nfSummary(it) {
+  const v = { url: it.url, text: it.text, wifi: it.ssid, contact: `${it.first || ""} ${it.last || ""}`.trim(), phone: it.number, sms: it.number,
+    email: it.to, geo: `${it.lat}, ${it.lon}`, app: it.package, bluetooth: it.mac }[it.kind];
+  return v || "";
+}
+function nfRenderRecs() {
+  $("#nfRecs").innerHTML = NF.recs.map((r, i) => `<div class="nfc-rec"><b>${esc(NF_KINDS[r.kind].label)}</b><span>${esc(nfSummary(r))}</span><button class="icon-btn danger" data-i="${i}" title="Remove this record"><i data-icon="trash"></i></button></div>`).join("");
+  $$("#nfRecs button").forEach((b) => (b.onclick = () => { NF.recs.splice(+b.dataset.i, 1); nfRenderRecs(); nfUpdate(); }));
+  renderIcons($("#nfRecs"));
+}
+function nfUpdate() {
+  clearTimeout(NF.t);
+  NF.t = setTimeout(async () => {
+    const cur = nfCurrent();
+    const items = NF.recs.concat(nfFilled(cur) ? [cur] : []);
+    if (!items.length) { $("#nfPreview").hidden = true; nfStatus(""); NF.last = null; return; }
+    const r = await api.nfc_make(items, $("#nfTag").value);
+    if (r.error) { nfStatus(r.error, true); NF.last = null; $("#nfPreview").hidden = NF.recs.length === 0; return; }
+    nfStatus(""); NF.last = r;
+    $("#nfPreview").hidden = false;
+    $("#nfDoes").innerHTML = r.does.map((d) => `<li>${esc(d)}</li>`).join("");
+    const pct = Math.min(100, Math.round(r.bytes / r.capacity * 100));
+    $("#nfCapFill").style.width = pct + "%"; $("#nfCapFill").classList.toggle("full", pct > 90);
+    $("#nfCapText").textContent = `${r.bytes} of ${r.capacity} bytes`;
+    if (!$("#nfName").value.trim() || $("#nfName").dataset.auto) {
+      const it = items[0];
+      let base = nfSummary(it);
+      if (it.kind === "url") {
+        try { const u = new URL(/^\w+:/.test(it.url) ? it.url : "https://" + it.url);
+          const site = u.hostname.replace(/^www\./, "").split(".").slice(-2, -1)[0] || u.hostname;
+          const last = u.pathname.split("/").filter(Boolean).pop();
+          base = site + (last ? " " + last : ""); } catch (_) { /* keep the summary */ }
+      } else if (it.kind === "wifi") base = "WiFi " + (it.ssid || "");
+      else base = (it.kind === "contact" ? "" : NF_KINDS[it.kind].label + " ") + base;
+      base = base.replace(/[^\w\- ]+/g, " ").trim().replace(/\s+/g, "_").slice(0, 30) || NF_KINDS[it.kind].label;
+      $("#nfName").value = base; $("#nfName").dataset.auto = "1";
+    }
+  }, 220);
+}
+async function nfSave(emulate) {
+  if (!needDevice()) return;
+  if (!NF.last) { nfStatus("Fill in the record first", true); return; }
+  const name = $("#nfName").value;
+  let r = await api.nfc_save(name, NF.last.nfc, emulate, false);
+  if (r.exists) {
+    const yes = await confirmDialog("Replace the tag?", `Your Flipper already has <code>${esc(r.path)}</code>. Replace it with this one?`, "Replace");
+    if (!yes) return;
+    r = await api.nfc_save(name, NF.last.nfc, emulate, true);
+  }
+  if (r.error) { toast(r.error); return; }
+  toast(emulate ? "Emulating on your Flipper: tap it with a phone" : `Saved: ${r.path}`);
+  if (MIR.state === "off") { LCD.say(emulate ? "Emulating! Tap me" : "Tag saved!", 4000); LCD.poke(); }
+}
+
 function muStatus(t, err) { $("#muStatus").textContent = t || ""; $("#muStatus").classList.toggle("err", !!err); }
 function muShow(r) {
   if (r.error) { muStatus(r.error, true); $("#muResult").hidden = true; return; }
@@ -2514,6 +2614,24 @@ function bind() {
   $("#muConvert").onclick = async () => { const t = $("#muText").value.trim(); if (!t) { muStatus("Paste a ringtone or pick a file", true); return; } muShow(await api.music_convert("ringtone.txt", t)); };
   $("#muPlay").onclick = muPlay;
   $("#muSave").onclick = async () => { if (!needDevice() || !TL.music) return; const r = await api.music_save($("#muName").value, TL.music.fmf); toast(r.error || `Saved: ${r.path}. Open it in the Music Player app.`); };
+  // NFC maker
+  nfRenderKinds(); nfRenderFields();
+  $("#nfTag").onchange = nfUpdate;
+  $("#nfName").addEventListener("input", () => delete $("#nfName").dataset.auto);
+  $("#nfAdd").onclick = () => {
+    const cur = nfCurrent();
+    if (!nfFilled(cur)) { nfStatus("Fill in this record first", true); return; }
+    if (!NF.last) { nfStatus("Fix this record first", true); return; }
+    NF.recs.push(cur); nfRenderRecs(); nfRenderFields(); nfUpdate();
+    nfStatus("Added. Fill in the next one, or save.");
+  };
+  $("#nfSave").onclick = () => nfSave(false);
+  $("#nfEmu").onclick = () => nfSave(true);
+  $("#nfExport").onclick = async () => {
+    if (!NF.last) { nfStatus("Fill in the record first", true); return; }
+    const r = await api.nfc_export($("#nfName").value, NF.last.nfc);
+    if (r.error) toast(r.error); else if (r.ok) toast("Saved on this PC");
+  };
   $("#anPick").onclick = async () => { const r = await api.anim_pick(); if (r.error) { toast(r.error); return; } if (!r.ok) return; TL.anim = { frames: [], i: 0 }; $("#anName").value = r.name.replace(/[^A-Za-z0-9_]+/g, "_").slice(0, 40); animRebuild(); };
   ["#anFit", "#anDither", "#anFps", "#anInv"].forEach((s) => ($(s).onchange = animRebuild));
   ["#anThr", "#anCon"].forEach((s) => ($(s).onchange = animRebuild));

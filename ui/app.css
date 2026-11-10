@@ -860,3 +860,27 @@ body.mirroring .scr-btn i { color: var(--orange); }
 .scr-btn[hidden] { display: none; }
 .mirror-status { min-height: 16px; margin-top: 6px; text-align: center; font: 12px var(--px); color: var(--muted); letter-spacing: .3px; }
 .tool-setting { padding: 4px 4px 8px; }
+
+/* ---------- NFC maker ---------- */
+.nfc-kinds { gap: 6px; }
+.nfc-kinds .fchip.on { background: #2b1a0a; color: var(--orange); border-color: var(--orange); }
+.nfc-fields { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; }
+.nfc-fields .full { grid-column: 1 / -1; }
+.nfc-fields label { flex-direction: column; align-items: stretch; gap: 4px; }
+.nfc-fields input[type=text], .nfc-fields textarea { width: 100%; min-width: 0; }
+.nfc-fields textarea { min-height: 54px; }
+.nfc-recs { display: flex; flex-direction: column; gap: 6px; }
+.nfc-rec { display: flex; align-items: center; gap: 10px; padding: 7px 10px; border: 1px solid var(--line-2); border-radius: 8px;
+  font-size: 13px; animation: pop .3s var(--spring) both; }
+.nfc-rec b { font: 600 11px var(--px); text-transform: uppercase; color: var(--orange); min-width: 64px; }
+.nfc-rec span { flex: 1; min-width: 0; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; color: var(--muted); }
+.nfc-preview { display: flex; flex-direction: column; gap: 10px; border-top: 1px dashed var(--line-2); padding-top: 10px; }
+.nfc-phone { display: flex; gap: 12px; align-items: flex-start; background: #0a0a0a; border: 1px solid var(--line); border-radius: 10px; padding: 10px 12px; }
+.nfc-phone b { font: 600 12px var(--px); text-transform: uppercase; letter-spacing: .5px; color: var(--muted); }
+.nfc-phone ul { margin: 4px 0 0; padding-left: 16px; font-size: 13px; }
+.nfc-wave { font: 700 18px var(--mono); color: var(--orange); transform: rotate(90deg); display: inline-block; animation: nfcpulse 1.4s ease-in-out infinite; }
+@keyframes nfcpulse { 50% { opacity: .35; } }
+.nfc-cap { flex: 1; display: flex; align-items: center; gap: 10px; font: 12px var(--mono); color: var(--muted); min-width: 200px; }
+.nfc-cap-bar { flex: 1; height: 8px; background: var(--panel-2); border-radius: 4px; overflow: hidden; }
+.nfc-cap-bar i { display: block; height: 100%; width: 0; background: var(--orange); transition: width .3s var(--ease), background .2s; }
+.nfc-cap-bar i.full { background: var(--err); }

@@ -356,8 +356,21 @@ def read_many(port, sdk_dirs, items, on_file, should_stop=lambda: False):
                 pass
 
 
-def open_app(port, sdk_dirs, path):
-    """Open an app on the Flipper, the way the SDK's runfap.py does: close the current app, then open."""
+def running_app(port, sdk_dirs):
+    """Name of the app open on the Flipper (from `loader info`, which changes nothing), or None."""
+    def fn(mod, st):
+        st.send_and_wait_eol("loader info\r")
+        return st.read.until(st.CLI_PROMPT).decode("utf-8", "replace").strip()
+    text = storage_call(port, sdk_dirs, fn)
+    if not text or "No application" in text:
+        return None
+    m = re.search(r'"([^"]+)"', text)
+    return m.group(1) if m else text.splitlines()[0][:40]
+
+
+def open_app(port, sdk_dirs, path, args=None):
+    """Open an app on the Flipper, the way the SDK's runfap.py does: close the current app, then open.
+    `path` is a .fap path or a built-in app name (e.g. "NFC"); `args` is passed to it (e.g. a file)."""
     def fn(mod, st):
         for _ in range(10):
             st.send_and_wait_eol("loader close\r")
@@ -369,8 +382,11 @@ def open_app(port, sdk_dirs, path):
                 st.read.until(st.CLI_EOL)
                 break
             else:
-                raise DeviceError("The Flipper is busy with an app that won't close. Exit it on the Flipper.")
-        st.send_and_wait_eol(f'loader open "{path}"\r')
+                raise DeviceError("An app on your Flipper can't be closed from here (the NFC app is one). "
+                                  "Press Back on the Flipper until you're on the home screen, then try again.")
+        # args go unquoted: the loader passes the rest of the line through as-is, quotes included,
+        # and the NFC app then can't find "/ext/nfc/x.nfc" (tested on Momentum dev, 10 Nov)
+        st.send_and_wait_eol(f'loader open "{path}"' + (f" {args}" if args else "") + "\r")
         result = st.read.until(st.CLI_EOL)
         if result.strip():
             raise DeviceError("The Flipper couldn't open it: " + result.decode("utf-8", "replace").strip())

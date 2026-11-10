@@ -102,6 +102,11 @@ repo, solders while it compiles, DJs when it's done and cries when the build bre
 - **Animation maker**: turn a GIF or picture into a desktop animation for your Flipper: dithered to
   128x64 with live preview, brightness and contrast, in Flipper's own animation format. On Momentum
   it goes into a *Workbench* asset pack; on other firmware into `dolphin/`. Remove it with one click.
+- **NFC maker**: make an NFC tag from scratch. Pick what a phone should do when it taps your Flipper
+  (open a link, join Wi-Fi, save a contact, call, text, email, show a place on the map, open an
+  Android app, pair Bluetooth, or show some text), fill in the blanks and Workbench writes a ready
+  NTAG213/215/216 `.nfc` file. Several records fit on one tag; a meter shows how full it is. Save it
+  to the Flipper, save and start emulating in one click, or keep it on your PC.
 - **Asset packs** (Momentum): browse and install the animation and icon packs from Momentum's pack
   library, checksum-verified.
 - **Folder sync**: pair a PC folder (say, your BadUSB scripts in a Git repo) with an SD card folder and

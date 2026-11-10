@@ -242,6 +242,29 @@
                 </div>
               </div>
             </details>
+            <details class="tool" data-tool="nfc">
+              <summary><b>NFC maker</b><span>Make an NFC tag your Flipper can emulate: a link, Wi-Fi, a contact and more</span></summary>
+              <div class="tool-body">
+                <div class="tool-row nfc-kinds" id="nfKinds"></div>
+                <div class="nfc-fields" id="nfFields"></div>
+                <div class="tool-row"><button class="mini" id="nfAdd"><i data-icon="download"></i>Add another record</button><span class="tool-status" id="nfStatus"></span></div>
+                <div class="nfc-recs" id="nfRecs"></div>
+                <div class="nfc-preview" id="nfPreview" hidden>
+                  <div class="nfc-phone"><span class="nfc-wave">)))</span><div><b>When a phone taps it</b><ul id="nfDoes"></ul></div></div>
+                  <div class="tool-row">
+                    <label>Tag <select id="nfTag"><option>NTAG213</option><option selected>NTAG215</option><option>NTAG216</option></select></label>
+                    <div class="nfc-cap"><div class="nfc-cap-bar"><i id="nfCapFill"></i></div><span id="nfCapText"></span></div>
+                  </div>
+                  <div class="tool-row">
+                    <input id="nfName" type="text" maxlength="40" spellcheck="false" placeholder="Tag name">
+                    <button class="mini" id="nfExport" title="Save the .nfc file on this PC"><i data-icon="folder"></i>Save to PC</button>
+                    <button class="mini" id="nfSave" title="Copy it to /ext/nfc on your Flipper">Save to Flipper</button>
+                    <button class="mini primary" id="nfEmu" title="Copy it and start emulating it right away">Save &amp; emulate</button>
+                  </div>
+                </div>
+                <div class="vw-note">Phones read the tag when they touch the back of your Flipper while it emulates. iPhones open links and contacts; Wi-Fi tags join networks on Android.</div>
+              </div>
+            </details>
             <details class="tool" data-tool="anim">
               <summary><b>Animation maker</b><span>Turn a GIF or picture into a desktop animation</span></summary>
               <div class="tool-body">

@@ -865,6 +865,65 @@ class Api:
                                                   file_types=file_types)
         return (res[0] if isinstance(res, (list, tuple)) else res) if res else None
 
+    # ------------------------------------------------ tools: NFC maker
+    def nfc_make(self, items, tag="NTAG215"):
+        """Build a tag from records -> {nfc, does, tag, uid, bytes, capacity} or {error}."""
+        import nfcmaker
+        try:
+            return nfcmaker.make(items or [], tag)
+        except nfcmaker.NfcError as e:
+            return {"error": str(e)}
+        except Exception as e:  # noqa: BLE001
+            return {"error": f"Couldn't build the tag: {e}"}
+
+    @staticmethod
+    def _nfc_name(name):
+        """Safe file name; underscores instead of spaces so the path can go on the loader command line."""
+        return re.sub(r"\s+", "_", re.sub(r"[^\w\- ]+", "", name or "").strip())[:40] or "Tag"
+
+    def nfc_save(self, name, nfc, emulate=False, overwrite=False):
+        """Write the tag to /ext/nfc/<name>.nfc; optionally open it in the NFC app (emulation)."""
+        import device
+        if not (nfc or "").startswith("Filetype: Flipper NFC device"):
+            return {"error": "Nothing to save. Build the tag first."}
+        path = f"/ext/nfc/{self._nfc_name(name)}.nfc"
+        try:
+            port = self._port()
+            # Never write or send "loader close" while an app (above all the NFC app, mid-emulation) is
+            # open: on 10 Nov that combination rebooted his Flipper. `loader info` only reads.
+            running = device.running_app(port, fb.sdk_dirs())
+            if running:
+                return {"error": f"{running} is open on your Flipper. Press Back on the Flipper until you're "
+                                 "on the home screen, then save again."}
+            if not overwrite and device.file_exists(port, fb.sdk_dirs(), path):
+                return {"exists": True, "path": path}
+            device.ensure_dir(port, fb.sdk_dirs(), "/ext/nfc")
+            device.write_file(port, fb.sdk_dirs(), path, nfc.encode("utf-8"))
+            if emulate:
+                device.open_app(port, fb.sdk_dirs(), "NFC", path)
+            return {"ok": True, "path": path, "emulating": bool(emulate)}
+        except (fb.BuildError, device.DeviceError) as e:
+            return {"error": str(e)}
+
+    def nfc_export(self, name, nfc):
+        """Save a copy of the .nfc file on this PC."""
+        import webview
+        if not (nfc or "").startswith("Filetype: Flipper NFC device"):
+            return {"error": "Nothing to save. Build the tag first."}
+        fname = self._nfc_name(name) + ".nfc"
+        try:
+            res = self._window.create_file_dialog(webview.FileDialog.SAVE, save_filename=fname,
+                                                  file_types=("Flipper NFC (*.nfc)", "All files (*.*)"))
+        except AttributeError:
+            res = self._window.create_file_dialog(webview.SAVE_DIALOG, save_filename=fname)
+        if not res:
+            return {"cancelled": True}
+        out = Path(res[0] if isinstance(res, (list, tuple)) else res)
+        if out.suffix.lower() != ".nfc":
+            out = out.with_suffix(".nfc")
+        out.write_text(nfc, encoding="utf-8", newline="\n")
+        return {"ok": True, "path": str(out)}
+
     # ------------------------------------------------ tools: music converter
     def music_pick(self):
         p = self._pick(("Ringtones and MIDI (*.mid;*.midi;*.txt;*.rtttl;*.rtx)", "All files (*.*)"))
