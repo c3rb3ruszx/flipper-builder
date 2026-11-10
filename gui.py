@@ -387,6 +387,7 @@ class Api:
             "library_count": len(fb.load_library()),
             "auto_backup": s.get("auto_backup", True),
             "frame_shots": bool(s.get("frame_shots")),
+            "auto_mirror": s.get("auto_mirror", True),
         }
 
     def clipboard(self):
@@ -1339,7 +1340,7 @@ class Api:
     def ble_scan(self):
         import ble
         try:
-            return {"flippers": ble.scan(6)}
+            return {"flippers": ble.scan(15)}
         except Exception as e:  # noqa: BLE001
             msg = str(e)
             if "not powered on" in msg.lower() or "powered_off" in msg.lower():
@@ -1348,7 +1349,27 @@ class Api:
                 return {"error": "This PC has no Bluetooth adapter Windows can use."}
             return {"error": f"Bluetooth scan failed: {msg}"}
 
-    def ble_mirror_start(self, address):
+    def _ask_ble_pin(self):
+        """Called during pairing: ask the page for the PIN on the Flipper's screen, wait up to 2 minutes."""
+        self._ble_pin_evt = threading.Event()
+        self._ble_pin_val = None
+        self._emit("ble_pin")
+        self._ble_pin_evt.wait(120)
+        return self._ble_pin_val
+
+    def ble_pin(self, pin):
+        pin = re.sub(r"\D", "", str(pin or ""))
+        self._ble_pin_val = pin or None
+        ev = getattr(self, "_ble_pin_evt", None)
+        if ev:
+            ev.set()
+        return {"ok": True}
+
+    def ble_last(self):
+        """The Flipper last mirrored over Bluetooth, for one-click reconnects."""
+        return fb.load_settings().get("ble_last") or {}
+
+    def ble_mirror_start(self, address, name=None):
         import ble
         if getattr(self, "_mirror", None):
             self.mirror_stop()
@@ -1364,7 +1385,11 @@ class Api:
 
         def on_state(state, detail=""):
             self._emit("mirror", state=state, detail=detail)
-        self._mirror = ble.BleMirror(address, on_frame, on_state)
+        def on_state_remember(state, detail=""):
+            if state == "live":
+                fb.save_settings(ble_last={"address": address, "name": name or self._device.get("name") or "your Flipper"})
+            on_state(state, detail)
+        self._mirror = ble.BleMirror(address, on_frame, on_state_remember, ask_pin=self._ask_ble_pin)
         self._mirror.start()
         if not getattr(self, "_frame_thread", None):
             self._frame_thread = threading.Thread(target=self._frame_pump, daemon=True)
@@ -1952,6 +1977,10 @@ class Api:
         ev = getattr(self, "_cli_stop", None)
         if ev:
             ev.set()
+        return {"ok": True}
+
+    def set_auto_mirror(self, on):
+        fb.save_settings(auto_mirror=bool(on))
         return {"ok": True}
 
     def set_framed(self, on):

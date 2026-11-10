@@ -832,3 +832,31 @@ details.vw-details summary { cursor: pointer; color: var(--muted); font-size: 13
 .remote-box code { font: 12.5px var(--mono); color: var(--orange-2); word-break: break-all; }
 
 #bdBody.drop { outline: 2px dashed var(--orange); outline-offset: 4px; border-radius: 8px; }
+
+/* ---------- Bluetooth button next to the mirror button: same pill as Mirror, Flipper orange ---------- */
+.bt-btn { display: inline-flex; align-items: center; gap: 9px; height: 36px; padding: 0 15px 0 13px; border-radius: 18px;
+  background: var(--panel-2); border: 1px solid var(--line-2); color: var(--text); font: 600 13px var(--px);
+  text-transform: uppercase; letter-spacing: .5px; transition: border-color .2s, background .2s, color .2s, box-shadow .2s, transform .12s var(--spring); }
+.bt-btn i { color: var(--orange); image-rendering: pixelated; }
+.bt-btn:hover { border-color: var(--orange); }
+.bt-btn:active { transform: scale(.96); }
+/* connecting: the outline breathes, the rune blinks in hard steps like the Flipper's own screen */
+.bt-btn.busy { border-color: var(--orange-deep); color: var(--orange-2); animation: btpulse 1.2s ease-in-out infinite; }
+.bt-btn.busy i { animation: blink .6s steps(2) infinite; }
+/* connected: lit like the app's other "on" controls */
+.bt-btn.live { background: #2b1a0a; border-color: var(--orange); color: var(--orange); box-shadow: 0 0 14px rgba(255,130,0,.28); }
+.bt-btn.live:hover { background: #3a2209; }
+.bt-btn[hidden] { display: none; }
+@keyframes btpulse { 50% { box-shadow: 0 0 0 4px rgba(255,130,0,.18); } }
+
+.mirror-btn[hidden] { display: none; }
+
+/* ---------- screen toggle (auto mirror) + status line ---------- */
+.scr-btn i { color: var(--muted); }
+.scr-btn:hover i { color: var(--orange); }
+body.mirroring .scr-btn { background: #2b1a0a; border-color: var(--orange); box-shadow: 0 0 12px rgba(255,130,0,.25); }
+body.mirroring .scr-btn i { color: var(--orange); }
+.scr-btn.busy { border-color: var(--orange-deep); animation: btpulse 1.2s ease-in-out infinite; }
+.scr-btn[hidden] { display: none; }
+.mirror-status { min-height: 16px; margin-top: 6px; text-align: center; font: 12px var(--px); color: var(--muted); letter-spacing: .3px; }
+.tool-setting { padding: 4px 4px 8px; }

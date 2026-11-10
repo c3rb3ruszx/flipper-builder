@@ -314,6 +314,7 @@ function mockApi() {
     flipper_ports: async () => ({ ports: [{ port: "COM7", name: "Ochenko" }] }), flipper_select: async () => ({ ok: true }),
     devboard_info: async () => ({ official: [{ channel: "release", version: "0.1.1" }], ports: [] }), devboard_ports: async () => ({ ports: [] }),
     devboard_use_official: async () => ({ source: "Black Magic 0.1.1 (release)", parts: [["0x1000", "bootloader.bin", 13248], ["0x8000", "partition-table.bin", 3072], ["0x10000", "blackmagic.bin", 904288]] }),
+    ble_last: async () => ({}), set_auto_mirror: async () => ({ ok: true }), ble_mirror_start: async () => ({ ok: true }),
     ble_scan: async () => ({ error: "Bluetooth is off on this PC. Turn it on in Windows settings, then scan again." }),
     remote_start: async () => ({ url: "http://192.168.1.20:8780/?t=abc", qr: "", clients: [] }), remote_stop: async () => ({ ok: true }), remote_status: async () => ({ on: true, clients: [] }),
     mf_dict_load: async () => ({ keys: ["A0A1A2A3A4A5", "FFFFFFFFFFFF"], exists: true }),
@@ -533,10 +534,13 @@ function onDevice(d) {
     }
     if (!S.busy) { LCD.say(msg, 4000); LCD.poke(); }
     setTimeout(autoBackup, 2500);   // after the hello, and after any SD reads the tabs start
+    MIR.userOff = false;
+    setTimeout(autoMirror, 3500);
   } else if (was.connected && !S.device.connected && !S.busy) {
     LCD.say("Bye Flipper!", 2500);
   }
   renderCompat();
+  btButton();
   if (S.tab === "library") renderLibrary();
   if (S.tab === "flipper" && (newly || (was.connected && !S.device.connected) || (!was.error && S.device.error))) {
     loadFlipper();
@@ -1108,22 +1112,25 @@ function onFrame(b64, orient) {
   MIR.frame = b64bytes(b64);
   LCD.showLive(MIR.frame, orient);
 }
-async function toggleMirror() {
-  if (MIR.state !== "off") { stopMirror(); return; }
+async function toggleMirror(auto) {
+  if (MIR.state !== "off") { MIR.userOff = true; stopMirror(); return; }
+  if (auto !== true) MIR.userOff = false;
   if (!S.device.connected || S.device.error) { needDevice(); return; }
-  MIR.state = "starting";
+  MIR.state = "starting"; MIR.ble = false; btButton();
   $("#mirrorLabel").textContent = "Connecting...";
   const r = await api.mirror_start();
-  if (r.error) { MIR.state = "off"; $("#mirrorLabel").textContent = "Mirror my Flipper"; toast(r.error); }
+  if (r.error) { MIR.state = "off"; $("#mirrorLabel").textContent = ""; toast(r.error); btButton(); }
 }
 function stopMirror(msg) {
   setLcdFull(false);
+  MIR.ble = false; setTimeout(btButton, 0);
+  if (!S.device.connected) { $("#deviceText").textContent = "No Flipper"; $("#devicePill").classList.remove("on"); }
   MIR.state = "off";
   api.mirror_stop();
   Object.values(MIR.held).forEach((h) => { clearTimeout(h.t1); clearInterval(h.t2); });
   MIR.held = {};
   document.body.classList.remove("mirroring");
-  $("#mirrorLabel").textContent = "Mirror my Flipper";
+  $("#mirrorLabel").textContent = "";
   $("#shotBtn").hidden = true;
   recStop(); $("#recBtn").hidden = true; $("#frameBtn").hidden = true;
   $("#deviceFw").textContent = fwObj().short;
@@ -1134,14 +1141,19 @@ function stopMirror(msg) {
 function onMirrorState(e) {
   if (e.state === "live") {
     MIR.state = "live";
+    if (e.detail === "Bluetooth") { MIR.ble = true; if (!S.device.connected) { $("#deviceText").textContent = "Bluetooth · mirror only"; $("#devicePill").classList.add("on"); } }
+    setTimeout(btButton, 0);
     document.body.classList.add("mirroring");
-    $("#mirrorLabel").textContent = "Stop mirroring";
+    $("#mirrorLabel").textContent = "";
     $("#shotBtn").hidden = false; $("#recBtn").hidden = false; $("#frameBtn").hidden = false;
     $("#deviceFw").textContent = "LIVE";
     $("#legend").innerHTML = `<span><b>d-pad / arrows</b> navigate</span><span><b>OK / Enter</b> select</span><span><b>&#8617; / Backspace</b> back</span><span><b>hold</b> long press</span>`;
     clearTimeout(S.idleTimer); clearTimeout(S.sleepTimer);
+  } else if (e.state === "connecting") {
+    if (MIR.state !== "off") $("#mirrorLabel").textContent = e.detail || "Connecting...";
+    btButton();
   } else if (e.state === "paused") {
-    if (MIR.state !== "off") $("#mirrorLabel").textContent = "Paused for USB job...";
+    if (MIR.state !== "off") $("#mirrorLabel").textContent = "Screen paused while Workbench uses USB...";
   } else if (e.state === "error") {
     if (MIR.state !== "off") { toast(e.detail || "Mirror stopped"); stopMirror("Lost the Flipper's screen"); }
   }
@@ -1925,9 +1937,56 @@ async function bdShow() {
   bdPorts();
 }
 
+/* ---------- auto mirror: the screen shows the Flipper as soon as it's plugged in ---------- */
+function autoMirror() {
+  if (!S.autoMirror || MIR.userOff || MIR.state !== "off" || !devReady()) return;
+  toggleMirror(true);
+}
+
 /* ---------- Bluetooth (experimental) ---------- */
+function btButton() {             // the Bluetooth button under the screen follows the mirror
+  const b = $("#btBtn");
+  b.classList.toggle("live", MIR.ble && MIR.state === "live");
+  b.classList.toggle("busy", MIR.ble && MIR.state === "starting");
+  b.hidden = MIR.state !== "off" && !MIR.ble;          // hidden while mirroring over USB
+  $("#btLabel").textContent = MIR.ble && MIR.state === "live" ? "Disconnect" : MIR.ble && MIR.state === "starting" ? "Connecting" : "Bluetooth";
+  $("#mirrorBtn").hidden = (MIR.ble && MIR.state !== "off") || (MIR.state === "off" && !(S.device.connected && !S.device.error));
+  $("#mirrorBtn").classList.toggle("busy", !MIR.ble && MIR.state === "starting");
+  $("#mirrorBtn").title = MIR.state === "off" ? "Show your Flipper's screen here" : "Pause the screen and use the d-pad for Workbench";
+  // like a real Flipper: its LED shows blue for Bluetooth (blinking while connecting, steady when connected)
+  if (MIR.ble && MIR.state === "live") led("blue");
+  else if (MIR.ble && MIR.state === "starting") led("blue", true);
+  else if (!S.busy && /blue/.test($("#led").className)) led(null);
+  b.title = MIR.ble && MIR.state !== "off" ? "Disconnect Bluetooth" : "Mirror over Bluetooth: no cable needed";
+}
+async function btConnect(address, name) {
+  if (MIR.state !== "off") stopMirror();
+  MIR.ble = true; MIR.state = "starting"; $("#mirrorLabel").textContent = "Connecting (Bluetooth)..."; btButton();
+  const x = await api.ble_mirror_start(address, name || null);
+  if (x.error) { MIR.state = "off"; MIR.ble = false; btButton(); toast(x.error); }
+}
+async function btQuick() {
+  if (MIR.ble && MIR.state !== "off") { stopMirror(); return; }
+  if (MIR.state !== "off") return;
+  const last = await api.ble_last();
+  if (last.address) { toast(`Connecting to ${last.name || "your Flipper"} over Bluetooth...`); btConnect(last.address, last.name); return; }
+  MIR.ble = true; MIR.state = "starting"; $("#mirrorLabel").textContent = "Looking for your Flipper..."; btButton();
+  const r = await api.ble_scan();
+  MIR.state = "off"; MIR.ble = false; btButton(); $("#mirrorLabel").textContent = "";
+  if (r.error) { toast(r.error); return; }
+  if (!r.flippers.length) { toast("No Flipper heard. Turn on Bluetooth in its Settings (and close the phone app)."); return; }
+  let pick = r.flippers[0];
+  if (r.flippers.length > 1) {
+    const asking = promptDialog("Which Flipper? Type its number:", "1", "Connect");
+    $("#cfBody").innerHTML = r.flippers.map((f, i) => `${i + 1}. ${esc(f.name)} (${esc(f.address)})`).join("<br>");
+    pick = r.flippers[parseInt((await asking) || "", 10) - 1];
+    if (!pick) return;
+  }
+  toast(`Connecting to ${pick.name}. First time: type the PIN your Flipper shows.`);
+  btConnect(pick.address, pick.name);
+}
 async function btScan() {
-  $("#btStatus").textContent = "Scanning for 6 seconds..."; $("#btList").innerHTML = "";
+  $("#btStatus").textContent = "Listening for your Flipper (up to 15 seconds)..."; $("#btList").innerHTML = "";
   const r = await api.ble_scan();
   if (r.error) { $("#btStatus").textContent = r.error; return; }
   $("#btStatus").textContent = r.flippers.length ? `${r.flippers.length} found` : "No Flipper found. Is Bluetooth on in the Flipper's settings?";
@@ -1935,13 +1994,7 @@ async function btScan() {
     const row = document.createElement("div"); row.className = "vw-btn";
     row.innerHTML = `<b>${esc(f.name)}</b><span>${esc(f.address)} · signal ${f.rssi ?? "?"} dBm</span>`;
     const go = document.createElement("button"); go.className = "mini primary"; go.textContent = "Mirror over Bluetooth";
-    go.onclick = async () => {
-      if (MIR.state !== "off") stopMirror();
-      MIR.state = "starting"; $("#mirrorLabel").textContent = "Connecting (Bluetooth)...";
-      const x = await api.ble_mirror_start(f.address);
-      if (x.error) { MIR.state = "off"; toast(x.error); }
-      else toast("Connecting over Bluetooth. If Windows asks for a PIN, type the one on your Flipper.");
-    };
+    go.onclick = () => { toast("Connecting. First time: type the PIN your Flipper shows."); btConnect(f.address, f.name); };
     row.appendChild(go); $("#btList").appendChild(row);
   });
 }
@@ -2302,6 +2355,10 @@ function onEvents(batch) {
       case "mirror": onMirrorState(e); break;
       case "fprog": onFprog(e); break;
       case "cli": onCli(e); break;
+      case "ble_pin": (async () => {
+        const pin = await promptDialog("Type the PIN shown on your Flipper", "", "Pair");
+        api.ble_pin(pin || "");
+      })(); break;
       case "fcheck_done":
         FL.checking = false; showFlProgress(null);
         if (e.error) toast(e.error);
@@ -2491,6 +2548,8 @@ function bind() {
   $("#flMap").onclick = openSdMap;
   $("#rmToggle").onclick = rmToggle;
   $("#btScan").onclick = btScan;
+  $("#btBtn").onclick = btQuick;
+  $("#amToggle").onchange = () => { S.autoMirror = $("#amToggle").checked; api.set_auto_mirror(S.autoMirror); if (S.autoMirror) autoMirror(); };
   $('.tool[data-tool="board"]').addEventListener("toggle", (e) => { if (e.target.open) bdShow(); });
   $("#bdUseOfficial").onclick = async () => { const c = $("#bdOfficial").value; if (!c) return; $("#bdPlan").textContent = "Downloading and checking..."; bdShowPlan(await api.devboard_use_official(c)); };
   $("#bdPick").onclick = async () => bdShowPlan(await api.devboard_pick());
@@ -2641,6 +2700,7 @@ async function boot() {
   initBar();
   const lcdReady = LCD.init();
   const info = await api.init();
+  S.autoMirror = info.auto_mirror !== false; $("#amToggle").checked = S.autoMirror;
   S.framed = !!info.frame_shots; $("#frameBtn").classList.toggle("on", S.framed);
   S.autoBackup = info.auto_backup !== false; $("#bkAuto").checked = S.autoBackup;
   S.fws = info.firmwares; S.fw = info.fw; S.after = info.after || "none"; S.autoFw = info.auto_fw !== false;

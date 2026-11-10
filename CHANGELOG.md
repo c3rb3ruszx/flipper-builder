@@ -2,6 +2,24 @@
 
 Downloads for every version are on the [Releases](../../releases) page.
 
+## 1.9.1
+
+- **Your Flipper's screen appears by itself** when you plug it in: no more Mirror button. A small screen
+  icon under the display pauses it (and gives the d-pad back to Workbench) until you plug in again;
+  switch auto-mirroring off in Tools if you prefer the dolphin.
+- The Bluetooth button is Flipper orange, and the device LED turns blue while Bluetooth is connected,
+  like a real Flipper. Reconnecting to a paired Flipper takes about 2 seconds, even when Windows has
+  already connected it.
+- **Bluetooth button under the screen**, next to Mirror my Flipper: one click connects (the first time it
+  scans and pairs; after that it reconnects to your Flipper in about 2 seconds). It glows blue while
+  connected and turns into Disconnect.
+- **Bluetooth pairing inside Workbench**: the first connection asks for the PIN your Flipper shows,
+  in Workbench itself; no Windows Settings needed. Tested: mirror over Bluetooth runs at about 8 frames
+  a second.
+- Bluetooth scan listens up to 15 seconds (Flippers advertise slowly) and stops as soon as it hears one.
+- Connecting finds the Flipper by a fresh scan (more reliable on Windows), with progress on the
+  mirror button, and the header shows "Bluetooth · mirror only" while mirroring wirelessly.
+
 ## 1.9.0
 
 - **App dev kit**: Tools > New app creates a project from a template (hello screen, menu app, LED

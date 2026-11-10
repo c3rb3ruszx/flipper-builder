@@ -54,13 +54,13 @@
       <span><b>&#9664; &#9654;</b> firmware</span><span><b>OK</b> build</span><span><b>&#8617;</b> cancel</span>
     </div>
     <div class="mirror-row">
-      <button class="mirror-btn" id="mirrorBtn" title="Show your Flipper's real screen here and control it with the d-pad and arrow keys">
-        <span class="rec"></span><span id="mirrorLabel">Mirror my Flipper</span>
-      </button>
+      <button class="bt-btn" id="btBtn" title="Mirror over Bluetooth: no cable needed"><i data-icon="bluetooth"></i><span id="btLabel">Bluetooth</span></button>
+      <button class="icon-btn scr-btn" id="mirrorBtn" hidden title="Your Flipper's screen: on by itself when you plug in. Click to pause and use the d-pad for Workbench."><i data-icon="screen"></i></button>
       <button class="icon-btn" id="shotBtn" hidden title="Save a screenshot of the Flipper's screen"><i data-icon="camera"></i></button>
       <button class="icon-btn" id="frameBtn" hidden title="Put screenshots and GIFs inside a drawn Flipper"><i data-icon="frame"></i></button>
       <button class="icon-btn rec-btn" id="recBtn" hidden title="Record the Flipper's screen as a GIF (up to 60 s)"><i data-icon="record"></i><span id="recTime"></span></button>
     </div>
+    <div class="mirror-status" id="mirrorLabel"></div>
   </section>
 
   <!-- right: tabs -->
@@ -214,6 +214,10 @@
 
         <div class="sub-pane" id="subTools" hidden>
           <div class="tools" id="toolsBody">
+            <label class="toggle tool-setting" title="Off: the screen shows Workbench's dolphin until you press the screen button">
+              <input type="checkbox" id="amToggle" checked><span class="switch"><span class="knob"></span></span>
+              <span class="toggle-text">Show my Flipper's screen as soon as it's plugged in</span>
+            </label>
             <details class="tool" data-tool="devkit">
               <summary><b>New app</b><span>Start your own Flipper app from a template</span></summary>
               <div class="tool-body">

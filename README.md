@@ -57,7 +57,8 @@ repo, solders while it compiles, DJs when it's done and cries when the build bre
   firmware update packages and leftover temp files. You tick what goes; nothing is deleted on its own.
 - **SD card map**: a map of what fills the SD card, folder by folder (click to look inside, or open it
   in Files), plus space by file type.
-- **Screen mirror + remote**: the app's LCD shows your Flipper's real screen, live. The d-pad and
+- **Screen mirror + remote**: plug in your Flipper and the app's LCD shows its real screen, live (a
+  small screen icon pauses it). The d-pad and
   your keyboard (arrows, Enter, Backspace) press the real buttons, holding one does a long press,
   and one click saves a screenshot. Click the screen to go full screen, like qFlipper (Esc, F11 or
   another click to leave), and record it as a GIF (up to 60 s) to share. Screenshots and GIFs can
@@ -116,7 +117,9 @@ repo, solders while it compiles, DJs when it's done and cries when the build bre
   an ESP32-S2 image before anything is written.
 - **Phone remote**: your Flipper's screen and buttons on your phone over home Wi-Fi: scan the code,
   no app needed. Off until you switch it on, home network only, secret link, stops when Workbench closes.
-- **Bluetooth** (experimental): mirror and control your Flipper without a cable.
+- **Bluetooth**: mirror and control your Flipper without a cable. Click the **Bluetooth** button under
+  the screen; the first time, type the PIN your Flipper shows (right in Workbench). After that it
+  reconnects in a couple of seconds.
 
 ### Little things
 

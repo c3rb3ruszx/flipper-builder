@@ -17,27 +17,91 @@ CHAR_FLOW = "19ed82ae-ed21-4c9d-4145-228e63fe0000"    # Flipper's free RX buffer
 
 
 async def _scan(seconds):
+    """Listen for up to `seconds`; stop 2 s after the first Flipper is heard (they advertise slowly)."""
     from bleak import BleakScanner
-    found = await BleakScanner.discover(timeout=seconds, return_adv=True)
-    out = []
-    for addr, (dev, adv) in found.items():
+    found, first = {}, []
+
+    def is_flipper(name, uuids):
+        return name.startswith("Flipper") or SERIAL_SERVICE in uuids or any(u.startswith("00003082") for u in uuids)
+
+    def seen(dev, adv):
         name = adv.local_name or dev.name or ""
         uuids = [u.lower() for u in (adv.service_uuids or [])]
-        if name.startswith("Flipper") or SERIAL_SERVICE in uuids or any(u.startswith("00003082") for u in uuids):
-            out.append({"address": addr, "name": name or "Flipper", "rssi": adv.rssi})
-    return sorted(out, key=lambda d: -(d["rssi"] or -999))
+        if is_flipper(name, uuids):
+            found[dev.address] = {"address": dev.address, "name": name or "Flipper", "rssi": adv.rssi}
+            if not first:
+                first.append(asyncio.get_running_loop().time())
+
+    async with BleakScanner(detection_callback=seen):
+        loop = asyncio.get_running_loop()
+        t0 = loop.time()
+        while loop.time() - t0 < seconds:
+            if first and loop.time() - first[0] > 2:
+                break
+            await asyncio.sleep(0.25)
+    return sorted(found.values(), key=lambda d: -(d["rssi"] or -999))
 
 
-def scan(seconds=6):
+def scan(seconds=15):
     """Flippers nearby that advertise over Bluetooth (just listening; nothing is sent)."""
     return asyncio.run(_scan(seconds))
+
+
+async def pair(address, ask_pin, log=lambda msg: None):
+    """Pair this PC with the Flipper inside Workbench (Windows): the Flipper shows a PIN and ask_pin()
+    returns what the user typed (or None to cancel). Returns "paired", "already" or raises."""
+    import sys
+    if sys.platform != "win32":
+        return "already"     # macOS / Linux pair on demand through the system prompt
+    from winrt.windows.devices.bluetooth import BluetoothLEDevice
+    from winrt.windows.devices.enumeration import (DevicePairingKinds, DevicePairingProtectionLevel,
+                                                   DevicePairingResultStatus)
+    dev = await BluetoothLEDevice.from_bluetooth_address_async(int(address.replace(":", ""), 16))
+    if dev is None:
+        raise RuntimeError("Windows can't find the Flipper. Is its Bluetooth on?")
+    info = dev.device_information
+    if info.pairing.is_paired:
+        return "already"
+    custom = info.pairing.custom
+
+    def handler(_sender, args):
+        if args.pairing_kind == DevicePairingKinds.PROVIDE_PIN:
+            deferral = args.get_deferral()
+
+            def answer():                # wait for the user off the WinRT thread
+                try:
+                    pin = ask_pin()
+                    if pin:
+                        args.accept(str(pin).strip())
+                finally:
+                    deferral.complete()
+            threading.Thread(target=answer, daemon=True).start()
+        else:                            # confirm-only / numbers shown on both: accept
+            args.accept()
+
+    token = custom.add_pairing_requested(handler)
+    try:
+        log("Pairing: your Flipper shows a PIN")
+        kinds = DevicePairingKinds.PROVIDE_PIN | DevicePairingKinds.CONFIRM_ONLY | DevicePairingKinds.CONFIRM_PIN_MATCH
+        result = await custom.pair_with_protection_level_async(kinds, DevicePairingProtectionLevel.ENCRYPTION_AND_AUTHENTICATION)
+    finally:
+        custom.remove_pairing_requested(token)
+    st = result.status
+    if st in (DevicePairingResultStatus.PAIRED, DevicePairingResultStatus.ALREADY_PAIRED):
+        return "paired"
+    names = {DevicePairingResultStatus.AUTHENTICATION_FAILURE: "the PIN didn't match",
+             DevicePairingResultStatus.AUTHENTICATION_TIMEOUT: "it timed out waiting for the PIN",
+             DevicePairingResultStatus.PAIRING_CANCELED: "pairing was cancelled",
+             DevicePairingResultStatus.REJECTED_BY_HANDLER: "pairing was cancelled"}
+    raise RuntimeError(f"Pairing failed: {names.get(st, st)}. Try again.")
 
 
 class BleMirror:
     """Same surface as device.Mirror: start(), stop(), press(), .running."""
 
-    def __init__(self, address, on_frame, on_state=lambda state, detail="": None):
+    def __init__(self, address, on_frame, on_state=lambda state, detail="": None, ask_pin=None):
         self.address, self.on_frame, self.on_state = address, on_frame, on_state
+        self.ask_pin = ask_pin
         self.running = False
         self._loop = None
         self._client = None
@@ -50,8 +114,11 @@ class BleMirror:
         threading.Thread(target=lambda: asyncio.run(self._main()), daemon=True).start()
 
     def stop(self):
-        if self._loop and self._stop_evt:
-            self._loop.call_soon_threadsafe(self._stop_evt.set)
+        if self._loop and self._stop_evt and not self._loop.is_closed():
+            try:
+                self._loop.call_soon_threadsafe(self._stop_evt.set)
+            except RuntimeError:     # the connection already ended
+                pass
 
     def pause(self):       # USB jobs don't share the BLE link
         pass
@@ -103,17 +170,26 @@ class BleMirror:
                     self.on_frame(data_, frame.get(2, [0])[0])
 
     async def _main(self):
-        from bleak import BleakClient
+        from bleak import BleakClient, BleakScanner
         self._loop = asyncio.get_running_loop()
         self._stop_evt = asyncio.Event()
-        self.on_state("connecting", "Connecting over Bluetooth...")
+        self.on_state("connecting", "Looking for your Flipper over Bluetooth...")
         try:
-            async with BleakClient(self.address, timeout=20) as client:
+            # connect to a fresh scan result: on Windows, connecting by address alone often can't find it
+            target = await BleakScanner.find_device_by_filter(
+                lambda d, adv: d.address.upper() == self.address.upper()
+                or any(u.lower().startswith("00003082") for u in (adv.service_uuids or [])), timeout=6)
+            if target is None:
+                # a paired Flipper that Windows has already connected stops advertising: connect by address
+                target = self.address
+            if self.ask_pin:                     # first time: pair in-app (PIN from the Flipper's screen)
+                addr = target if isinstance(target, str) else target.address
+                r = await pair(addr, self.ask_pin, lambda m: self.on_state("connecting", m))
+                if r == "paired":
+                    self.on_state("connecting", "Paired. Connecting...")
+            self.on_state("connecting", "Connecting over Bluetooth...")
+            async with BleakClient(target, timeout=30) as client:
                 self._client = client
-                try:
-                    await client.pair()          # first time: the Flipper shows a PIN, Windows asks for it
-                except Exception:  # noqa: BLE001
-                    pass                          # already paired, or the platform pairs on demand
                 await client.start_notify(CHAR_TX, self._on_data)
                 self.running = True
                 self._send(20)                    # start screen stream
@@ -122,7 +198,10 @@ class BleMirror:
                 self._send(21)                    # stop screen stream
                 await asyncio.sleep(0.3)
         except Exception as e:  # noqa: BLE001
-            self.on_state("error", f"Bluetooth: {e}")
+            msg = str(e)
+            if "not found" in msg.lower():
+                msg = "Can't reach your Flipper. Is its Bluetooth on, and not connected to your phone?"
+            self.on_state("error", f"Bluetooth: {msg}")
         finally:
             self.running = False
             self._client = None
