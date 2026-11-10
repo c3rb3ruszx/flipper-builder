@@ -2,6 +2,15 @@
 
 Downloads for every version are on the [Releases](../../releases) page.
 
+## 1.9.2
+
+- Fix: with the screen mirrored (now on by itself in 1.9.1), opening a second folder, the SD map or
+  anything else that talks to the Flipper right after another job could wait forever on "Reading...".
+  The mirror was still restarting from the previous job and kept the USB port. Jobs now wait for it
+  properly and the screen comes back about a second later.
+- Fix: the IR viewer's *Edit buttons* no longer shows up on the Firmware, Clean up and new-file sheets.
+- README: animated demos of building, mirroring and Discover, and fresh screenshots.
+
 ## 1.9.1
 
 - **Your Flipper's screen appears by itself** when you plug it in: no more Mirror button. A small screen

@@ -32,23 +32,33 @@ class DeviceError(Exception):
 
 @contextlib.contextmanager
 def _exclusive():
-    """Take the port for a CLI conversation. A running mirror is paused first and resumed after."""
-    m = _mirror
-    resume = m is not None and m.running
-    if resume:
-        m.pause()
+    """Take the port for a CLI conversation. A running mirror is paused first and resumed after.
+
+    The mirror can be (re)starting when we get here: its thread already waits for or holds the
+    port but isn't streaming yet. So keep pausing whatever mirror is active until the port is ours,
+    instead of checking once (that left jobs waiting forever right after another job ended)."""
     me = threading.current_thread()
     paused = [x for x in list(_streams) if x.running and x._thread is not me]
     for x in paused:
         x.pause()
+    m = None
     try:
-        with _port_lock:
+        while True:
+            cur = _mirror
+            if cur is not None and cur._thread is not me and cur.active():
+                cur.pause()
+                m = cur
+            if _port_lock.acquire(timeout=0.25):
+                break
+        try:
             yield
+        finally:
+            _port_lock.release()
     finally:
         for x in paused:
             if x in _streams:
                 x.resume()
-        if resume and _mirror is m:
+        if m is not None and _mirror is m:
             m.resume()
 
 
@@ -1054,6 +1064,7 @@ class Mirror:
         self._send_lock = threading.Lock()
         self._cmd = 1
         self._ending = False      # set when we asked the Flipper to end the RPC session
+        self._stop_sent = False   # stop_session already sent for this run
 
     # -- control
     def start(self):
@@ -1064,8 +1075,13 @@ class Mirror:
         self._stop.clear()
         self._start_thread()
 
+    def active(self):
+        """Streaming, or about to (its thread is alive and wasn't told to stop)."""
+        return not self._stop.is_set() and self._thread is not None and self._thread.is_alive() and not self._ending
+
     def _start_thread(self):
         self._ending = False
+        self._stop_sent = False
         self._thread = threading.Thread(target=self._run, daemon=True, name="mirror")
         self._thread.start()
 
@@ -1124,10 +1140,13 @@ class Mirror:
         if self._ser is not None and self.running:
             self._send(21)          # stop screen stream
             self._send(19)          # stop_session -> back to CLI
+            self._stop_sent = True
         self._ending = True
 
     def _run(self):
         with _port_lock:
+            if self._ending:                    # paused or stopped while waiting for the port
+                return
             try:
                 mod, st = _open_guarded(self.port, self.sdk_dirs)
             except DeviceError as e:
@@ -1176,6 +1195,10 @@ class Mirror:
                             self.on_frame(data, orient)
                     elif 19 in fields or (2 in fields and fields[2][0] != 0 and 22 not in fields):
                         pass                                  # session stop ack / status replies
+                if self._ending and not self._stop_sent:      # told to end before we were streaming
+                    self._send(21)
+                    self._send(19)
+                    self._stop_sent = True
             finally:
                 dropped = not self._ending
                 self.running = False

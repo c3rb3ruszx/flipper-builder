@@ -6,7 +6,7 @@
 
 **Build, install and manage your Flipper Zero's apps from your PC.**
 
-![Flipper Workbench compiling an app while the dolphin solders](assets/screenshot.png)
+![Pasting a GitHub link into Flipper Workbench and building the app while the dolphin solders](assets/demo-build.gif)
 
 A Windows desktop companion for the Flipper Zero. Paste a GitHub link and it builds the app for your
 exact firmware with [ufbt](https://github.com/flipperdevices/flipperzero-ufbt), Flipper's official
@@ -40,6 +40,8 @@ repo, solders while it compiles, DJs when it's done and cries when the build bre
   automatically on every save. Handy when you write your own apps.
 
 ### Your Flipper
+
+![Plugging in: the Flipper's real screen appears and the keyboard drives it](assets/demo-mirror.gif)
 
 - **Knows your Flipper**: plug it in and the app reads its firmware and API version, selects the
   matching SDK, and warns you before building something that won't run on it.
@@ -82,6 +84,8 @@ repo, solders while it compiles, DJs when it's done and cries when the build bre
   your Flipper backs it up once a day; the last 5 automatic backups are kept, yours never deleted.
 
 ### Library & Discover
+
+![Searching the official catalog and the IR remote library](assets/demo-discover.gif)
 
 - **Library + Rebuild all**: every app you build is remembered, with badges for what runs on your
   Flipper and what's outdated. After a firmware update, one click rebuilds them all (and installs them).
@@ -147,6 +151,8 @@ repo, solders while it compiles, DJs when it's done and cries when the build bre
 | **Firmware**: official packages of every firmware, checked twice before anything is installed | **Capture viewer**: an IR remote's buttons, each one ready to send |
 | ![The script editor with a JavaScript app](assets/screenshot-editor.png) | ![The Flipper's own command line inside the app](assets/screenshot-cli.png) |
 | **Script editor**: BadUSB and JavaScript, saved straight to the SD card | **CLI**: the Flipper's own command line, with history and a Stop button |
+| ![The SD card map](assets/screenshot-sdmap.png) | ![The IR remote library](assets/screenshot-irdb.png) |
+| **SD map**: what fills the SD card, block by block | **IR remotes**: 8,900 community remotes, searchable, tried before you install |
 
 ## Install
 

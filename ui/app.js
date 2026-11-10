@@ -1565,7 +1565,7 @@ async function openCleanup() {
   if (!needDevice()) return;
   VW.path = null; VW.data = null;
   $("#vwTitle").textContent = "Clean up"; $("#vwSub").textContent = "Things on the SD card you probably don't need";
-  $("#vwEdit").hidden = true; $("#vwDownload").hidden = true; $("#vwEditor").hidden = true; $("#vwBody").hidden = false;
+  $("#vwEdit").hidden = true; $("#vwDownload").hidden = true; $("#vwEditor").hidden = true; $("#vwBody").hidden = false; $("#vwEditIr").hidden = true; $("#vwInstall").hidden = true;
   $("#vwBody").innerHTML = `<div class="skeleton"><span class="blk"></span>Looking through the SD card...</div>`;
   $("#viewer").hidden = false;
   if (!FL.apps) await loadFlipper();
@@ -1620,7 +1620,7 @@ async function openFirmware() {
   if (!needDevice()) return;
   VW.path = null; VW.data = null;
   $("#vwTitle").textContent = "Firmware"; $("#vwSub").textContent = "Update your Flipper with the official packages of each firmware";
-  $("#vwEdit").hidden = true; $("#vwDownload").hidden = true; $("#vwEditor").hidden = true; $("#vwBody").hidden = false;
+  $("#vwEdit").hidden = true; $("#vwDownload").hidden = true; $("#vwEditor").hidden = true; $("#vwBody").hidden = false; $("#vwEditIr").hidden = true; $("#vwInstall").hidden = true;
   $("#vwBody").innerHTML = `<div class="skeleton"><span class="blk"></span>Checking the firmware servers...</div>`;
   $("#viewer").hidden = false;
   const r = await api.fw_info();
@@ -1862,7 +1862,7 @@ async function openSdMap() {
   if (!needDevice()) return;
   VW.path = null; VW.data = null;
   $("#vwTitle").textContent = "SD card map"; $("#vwSub").textContent = "What fills your Flipper's SD card";
-  $("#vwEdit").hidden = true; $("#vwDownload").hidden = true; $("#vwEditor").hidden = true; $("#vwBody").hidden = false;
+  $("#vwEdit").hidden = true; $("#vwDownload").hidden = true; $("#vwEditor").hidden = true; $("#vwBody").hidden = false; $("#vwEditIr").hidden = true; $("#vwInstall").hidden = true;
   $("#vwEditIr").hidden = true; $("#vwInstall").hidden = true;
   $("#vwBody").innerHTML = `<div class="skeleton"><span class="blk"></span>Measuring every folder (about 20 seconds)...</div>`;
   $("#viewer").hidden = false;
@@ -2056,7 +2056,7 @@ async function fmNewFile() {
   if (/[\\/:*?"<>|]/.test(name)) { toast("That name has characters the SD card can't use"); return; }
   VW.path = `${FM.path}/${name}`; VW.data = { text: "" }; VW.isNew = true;
   $("#vwTitle").textContent = name; $("#vwSub").textContent = `${VW.path} · new`;
-  $("#vwDownload").hidden = true;
+  $("#vwDownload").hidden = true; $("#vwEditIr").hidden = true; $("#vwInstall").hidden = true;
   $("#viewer").hidden = false;
   openEditor(edKind(VW.path) === "js" ? 'print("Hello from Flipper Workbench!");\n' : edKind(VW.path) === "ducky" ? "REM My script\nDELAY 500\nSTRING Hello\n" : "");
   VW.dirty = true;

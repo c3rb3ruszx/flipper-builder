@@ -7,7 +7,7 @@ $ErrorActionPreference = 'Stop'
 $root = Split-Path -Parent $PSScriptRoot
 $dist = Join-Path $root 'dist\FlipperWorkbench'
 if (-not (Test-Path "$dist\FlipperWorkbench.exe")) { throw "Build first: tools\build_exe.ps1" }
-$version = '1.9.1'
+$version = '1.9.2'
 $uninstRoot = 'HKCU:\Software\Microsoft\Windows\CurrentVersion\Uninstall'
 
 # Close running copies (old and new name) and wait until Windows releases their files
