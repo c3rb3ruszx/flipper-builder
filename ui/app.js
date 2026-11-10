@@ -304,10 +304,23 @@ function mockApi() {
     files_save: async (p, t) => ({ ok: true, size: t.length }),
     ir_send: async () => ({ ok: true }),
     record_start: async () => ({ ok: true, max: 60 }),
+    set_framed: async () => ({ ok: true }), save_screenshot_framed: async () => ({ path: "x.png" }),
     auto_backup_due: async () => ({ due: false }),
     auto_backup_plan: async () => ({ due: false }),
     cleanup_scan: async () => { await sleep(500); return { temp: [{ path: "/ext/apps/Tools/clock.fap.fwtmp", size: 4200 }], updates: [{ path: "/ext/update/f7-update-mntm-011", size: 2400000, files: 9 }] }; },
     cleanup_delete: async () => ({ ok: true }),
+    devkit_templates: async () => ({ templates: [["hello", "Hello screen", "Draws text"], ["menu", "Menu app", "A menu"], ["js", "JavaScript app", "A .js app"]], categories: ["Tools", "Games"], default_dir: "D:\\projects", vscode: true }),
+    devkit_create: async (n) => ({ folder: "D:\\projects\\my_app", appid: "my_app" }),
+    flipper_ports: async () => ({ ports: [{ port: "COM7", name: "Ochenko" }] }), flipper_select: async () => ({ ok: true }),
+    devboard_info: async () => ({ official: [{ channel: "release", version: "0.1.1" }], ports: [] }), devboard_ports: async () => ({ ports: [] }),
+    devboard_use_official: async () => ({ source: "Black Magic 0.1.1 (release)", parts: [["0x1000", "bootloader.bin", 13248], ["0x8000", "partition-table.bin", 3072], ["0x10000", "blackmagic.bin", 904288]] }),
+    ble_scan: async () => ({ error: "Bluetooth is off on this PC. Turn it on in Windows settings, then scan again." }),
+    remote_start: async () => ({ url: "http://192.168.1.20:8780/?t=abc", qr: "", clients: [] }), remote_stop: async () => ({ ok: true }), remote_status: async () => ({ on: true, clients: [] }),
+    mf_dict_load: async () => ({ keys: ["A0A1A2A3A4A5", "FFFFFFFFFFFF"], exists: true }),
+    mf_dict_save: async (k) => ({ ok: true, count: k.length }),
+    sd_map: async () => { await sleep(300); const f = (name, size, files, children = []) => ({ name, path: "/ext/" + name, size, files, children });
+      return { free_kib: 15115776, types: [["gz", 23053548, 2], ["fap", 13122964, 271], ["ir", 8811452, 1968]],
+        tree: { name: "SD card", path: "/ext", size: 97000000, files: 4472, children: [f("update", 24680000, 14), f("badusb", 21732000, 300), f("infrared", 19756000, 1968, [f("TVs", 9000000, 800), f("ACs", 5000000, 400)]), f("apps", 12850000, 271), f("apps_data", 10019000, 500), f("subghz", 5144000, 90)] } }; },
     fw_info: async () => { await sleep(400); return { power: { "charge.level": "100", "charge.state": "charged" }, targets: {
       official: { id: "official", family: "Official", channel: "release", version: "1.5.1", age: "25 days ago", changelog: "- Lots of fixes" },
       "momentum-dev": { id: "momentum-dev", family: "Momentum", channel: "dev", version: "d3f89dfe", age: "82 days ago", changelog: "" },
@@ -648,6 +661,7 @@ function setBuildButton(busy) {
 
 /* ---------- shared bits ---------- */
 function fmtSize(n) {
+  if (n >= 1073741824) return (n / 1073741824).toFixed(2) + " GB";
   if (n >= 1048576) return (n / 1048576).toFixed(1) + " MB";
   return n > 1024 ? (n / 1024).toFixed(1) + " KB" : n + " B";
 }
@@ -1111,7 +1125,7 @@ function stopMirror(msg) {
   document.body.classList.remove("mirroring");
   $("#mirrorLabel").textContent = "Mirror my Flipper";
   $("#shotBtn").hidden = true;
-  recStop(); $("#recBtn").hidden = true;
+  recStop(); $("#recBtn").hidden = true; $("#frameBtn").hidden = true;
   $("#deviceFw").textContent = fwObj().short;
   $("#legend").innerHTML = `<span><b>&#9664; &#9654;</b> firmware</span><span><b>OK</b> build</span><span><b>&#8617;</b> cancel</span>`;
   LCD.endLive();
@@ -1122,7 +1136,7 @@ function onMirrorState(e) {
     MIR.state = "live";
     document.body.classList.add("mirroring");
     $("#mirrorLabel").textContent = "Stop mirroring";
-    $("#shotBtn").hidden = false; $("#recBtn").hidden = false;
+    $("#shotBtn").hidden = false; $("#recBtn").hidden = false; $("#frameBtn").hidden = false;
     $("#deviceFw").textContent = "LIVE";
     $("#legend").innerHTML = `<span><b>d-pad / arrows</b> navigate</span><span><b>OK / Enter</b> select</span><span><b>&#8617; / Backspace</b> back</span><span><b>hold</b> long press</span>`;
     clearTimeout(S.idleTimer); clearTimeout(S.sleepTimer);
@@ -1176,6 +1190,11 @@ async function recStop() {
 }
 function screenshot() {
   if (!MIR.frame) return;
+  if (S.framed) {
+    api.save_screenshot_framed().then((r) => toast(r.error || "Framed screenshot saved"));
+    $("#lcd").classList.add("flash"); setTimeout(() => $("#lcd").classList.remove("flash"), 500);
+    return;
+  }
   const scale = 4, c = document.createElement("canvas");
   c.width = W * scale + 32; c.height = H * scale + 32;
   const x = c.getContext("2d");
@@ -1250,7 +1269,21 @@ async function cliRun(cmd) {
   if (r && r.error) { cliPrint(r.error + "\n\n", "err"); cliBusy(false); }
 }
 function onCli(e) {
-  if (e.text) cliPrint(e.text);
+  if (e.text && e.log) {                 // live log: whole lines only, filtered, coloured by level
+    CLI.partial = (CLI.partial || "") + e.text;
+    const lines = CLI.partial.split("\n"); CLI.partial = lines.pop();
+    const f = ($("#logFilter").value || "").trim().toLowerCase();
+    for (const ln of lines) {
+      if (f && !ln.toLowerCase().includes(f)) continue;
+      const m = /\[([EWIDT])\]/.exec(ln);
+      cliPrint(ln + "\n", m ? { E: "lvl-e", W: "lvl-w", D: "lvl-d", T: "lvl-d" }[m[1]] : undefined);
+    }
+  } else if (e.text) cliPrint(e.text);
+  if (e.done && e.log) {
+    CLI.follow = false; $("#logFollow").classList.remove("on"); $("#logFollow").lastChild.textContent = "Follow log";
+    if (e.error) cliPrint(e.error + "\n", "err"); else cliPrint("^C\n\n", "note");
+    return;
+  }
   if (e.done) {
     if (e.error) cliPrint(e.error + "\n", "err");
     else if (e.ended === "stopped") cliPrint("^C\n", "note");
@@ -1414,6 +1447,11 @@ async function openViewer(path, size, src) {
       }
       $("#vwBtns").appendChild(row);
     });
+  }
+  if (r.kind === "nfc" && VW.src !== "irdb") {
+    const cmp = document.createElement("button"); cmp.className = "mini"; cmp.textContent = "Compare with another dump";
+    cmp.onclick = () => nfcCompare(path, r);
+    body.appendChild(cmp);
   }
   if (r.blocks) {
     body.insertAdjacentHTML("beforeend", `<details class="vw-details"><summary>Show all ${r.blocks.length} ${esc(r.blocks[0][0].split(" ")[0].toLowerCase())}s</summary><pre class="vw-raw">${r.blocks.map(([k, v]) => `${esc(k.padEnd(10))} ${esc(v)}`).join("\n")}</pre></details>`);
@@ -1752,6 +1790,212 @@ async function syCompare(p) {
     };
   };
   render();
+}
+/* ---------- SD card map: treemap of folders by size, drill down, open in Files ---------- */
+const MAP = { data: null, stack: [] };
+function squarify(items, x, y, w, h) {          // items: [{size}], sorted big -> small; returns rects
+  const out = [], total = items.reduce((s, i) => s + i.size, 0) || 1;
+  let rest = items.map((i) => ({ ...i, area: i.size / total * w * h }));
+  while (rest.length) {
+    const horiz = w >= h, side = horiz ? h : w;
+    let row = [rest[0]], best = Infinity;
+    const worst = (r) => { const s = r.reduce((a, i) => a + i.area, 0), mx = Math.max(...r.map((i) => i.area)), mn = Math.min(...r.map((i) => i.area));
+      return Math.max(side * side * mx / (s * s), (s * s) / (side * side * mn)); };
+    best = worst(row);
+    for (let k = 1; k < rest.length; k++) { const t = worst([...row, rest[k]]); if (t > best) break; row.push(rest[k]); best = t; }
+    const s = row.reduce((a, i) => a + i.area, 0), thick = s / side;
+    let off = 0;
+    for (const it of row) {
+      const len = it.area / thick;
+      out.push(horiz ? { ...it, x, y: y + off, w: thick, h: len } : { ...it, x: x + off, y, w: len, h: thick });
+      off += len;
+    }
+    if (horiz) { x += thick; w -= thick; } else { y += thick; h -= thick; }
+    rest = rest.slice(row.length);
+  }
+  return out;
+}
+function mapRender() {
+  const node = MAP.stack[MAP.stack.length - 1], body = $("#vwBody");
+  const kids = node.children.filter((c) => c.size > 0);
+  const loose = node.size - kids.reduce((s, c) => s + c.size, 0);
+  const items = [...kids, ...(loose > 0 ? [{ name: "files here", size: loose, files: 0, leaf: true, children: [] }] : [])];
+  const fk = MAP.data.free_kib;
+  body.innerHTML = `<div class="map-crumbs">${MAP.stack.map((n, i) => `<button data-i="${i}">${esc(n.name)}</button>`).join("<span>/</span>")}</div>
+    <div class="vw-note">${fmtSize(node.size)} in ${node.files.toLocaleString()} files${fk != null && MAP.stack.length === 1 ? ` · ${fmtSize(fk * 1024)} free` : ""}. Click a block to look inside; the folder name above opens it in Files.</div>
+    <div class="treemap" id="tmBox"></div>
+    ${MAP.stack.length === 1 ? `<div class="vw-sec">By file type</div><div class="types">${MAP.data.types.slice(0, 8).map(([ext, size, n]) =>
+      `<div class="type-row"><span>.${esc(ext)}</span><div class="bar" style="width:${Math.max(1, size / MAP.data.types[0][1] * 100)}%"></div><span>${fmtSize(size)} · ${n}</span></div>`).join("")}</div>` : ""}`;
+  $$(".map-crumbs button", body).forEach((b) => (b.onclick = () => {
+    const i = +b.dataset.i;
+    if (i === MAP.stack.length - 1 && i > 0) { $("#viewer").hidden = true; setSub("files"); loadFiles(node.path); return; }
+    MAP.stack = MAP.stack.slice(0, i + 1); mapRender();
+  }));
+  const box = $("#tmBox"), W = box.clientWidth, H = box.clientHeight;
+  const rects = squarify(items.sort((a, b) => b.size - a.size), 0, 0, W, H);
+  const max = Math.max(...items.map((i) => i.size)) || 1;
+  rects.forEach((r) => {
+    const el = document.createElement("div");
+    el.className = "tm" + (r.leaf || !r.children.length ? " leaf" : "");
+    const t = Math.sqrt(r.size / max);
+    el.style.cssText = `left:${r.x}px;top:${r.y}px;width:${r.w}px;height:${r.h}px;background:hsl(${28 + (1 - t) * 10},${85 - (1 - t) * 30}%,${42 + t * 14}%)`;
+    el.title = `${r.name}: ${fmtSize(r.size)}${r.files ? `, ${r.files} files` : ""}`;
+    if (r.w > 50 && r.h > 28) el.innerHTML = `<b>${esc(r.name)}</b><small>${fmtSize(r.size)}</small>`;
+    if (!r.leaf && r.children.length) el.onclick = () => { MAP.stack.push(r); mapRender(); };
+    else if (!r.leaf) el.onclick = () => { $("#viewer").hidden = true; setSub("files"); loadFiles(r.path); };
+    box.appendChild(el);
+  });
+}
+async function openSdMap() {
+  if (!needDevice()) return;
+  VW.path = null; VW.data = null;
+  $("#vwTitle").textContent = "SD card map"; $("#vwSub").textContent = "What fills your Flipper's SD card";
+  $("#vwEdit").hidden = true; $("#vwDownload").hidden = true; $("#vwEditor").hidden = true; $("#vwBody").hidden = false;
+  $("#vwEditIr").hidden = true; $("#vwInstall").hidden = true;
+  $("#vwBody").innerHTML = `<div class="skeleton"><span class="blk"></span>Measuring every folder (about 20 seconds)...</div>`;
+  $("#viewer").hidden = false;
+  const r = await api.sd_map();
+  if ($("#viewer").hidden) return;
+  if (r.error) { $("#vwBody").innerHTML = `<div class="vw-empty"><b>Couldn't read it</b><br>${esc(r.error)}</div>`; return; }
+  MAP.data = r; MAP.stack = [r.tree]; mapRender();
+}
+/* ---------- app dev kit ---------- */
+const DK = { tpl: "hello", dir: null, info: null };
+async function dkShow() {
+  if (!DK.info) {
+    DK.info = await api.devkit_templates();
+    $("#dkCat").innerHTML = DK.info.categories.map((c) => `<option>${esc(c)}</option>`).join("");
+    DK.dir = DK.info.default_dir;
+  }
+  $("#dkTemplates").innerHTML = DK.info.templates.map(([k, t, d]) => `<button class="dk-t ${k === DK.tpl ? "on" : ""}" data-k="${k}"><span class="box"></span><span><b>${esc(t)}</b><br><small>${esc(d)}</small></span></button>`).join("");
+  $$("#dkTemplates .dk-t").forEach((b) => (b.onclick = () => { DK.tpl = b.dataset.k; dkShow(); }));
+  $("#dkCat").disabled = DK.tpl === "js";
+  $("#dkDirText").textContent = DK.dir;
+}
+async function dkCreate() {
+  const name = $("#dkName").value.trim();
+  if (!name) { $("#dkResult").textContent = "Give your app a name first."; return; }
+  const r = await api.devkit_create(name, DK.tpl, $("#dkCat").value, DK.dir);
+  if (r.error) { $("#dkResult").textContent = r.error; return; }
+  const box = $("#dkResult");
+  if (r.js) {
+    box.innerHTML = `Created <code>${esc(r.js)}</code>. <button class="mini primary" id="dkSendJs">Send to Flipper &amp; edit</button> <button class="mini" id="dkOpen">Open folder</button>`;
+    $("#dkSendJs").onclick = async () => { if (!needDevice()) return; const s = await api.devkit_send_js(r.js); if (s.error) { toast(s.error); return; } toast(`Sent to ${s.path}`); openViewer(s.path, 0); };
+  } else {
+    box.innerHTML = `Created <code>${esc(r.folder)}</code> with your app's source. <button class="mini primary" id="dkBuild">Build &amp; install, rebuild on save</button> <button class="mini" id="dkOpen">Open folder</button>${DK.info.vscode ? ` <button class="mini" id="dkCode">Open in VS Code</button>` : ""}
+      <br>Its log lines carry the tag <code>${esc(r.appid)}</code>: use <b>CLI &gt; Follow log</b> with that filter while you test.`;
+    $("#dkBuild").onclick = () => {
+      setTab("build"); $("#url").value = r.folder; renderPreview(); setAfter("open", true);
+      setWatch(r.folder);
+      build();
+    };
+    if ($("#dkCode")) $("#dkCode").onclick = () => api.devkit_open_code(r.folder);
+  }
+  $("#dkOpen").onclick = () => api.open_folder(r.folder);
+  renderIcons(box);
+}
+
+/* ---------- Wi-Fi dev board ---------- */
+const BD = { plan: null };
+function bdShowPlan(r) {
+  if (r.error) { $("#bdPlan").innerHTML = `<span style="color:var(--err)">${esc(r.error)}</span>`; BD.plan = null; bdButtons(); return; }
+  if (!r.parts) return;
+  BD.plan = r;
+  $("#bdPlan").innerHTML = `<b>${esc(r.source)}</b>: ${r.parts.map(([a, l, n]) => `${esc(l)} at ${a} (${fmtSize(n)})`).join(", ")}. Checked: ESP32-S2 images.`;
+  bdButtons();
+}
+function bdOpen() { const t = $('.tool[data-tool="board"]'); return t && t.open && S.tab === "flipper" && FM.sub === "tools"; }
+function bdDropFile(f) {
+  if (f.size > 16 * 1024 * 1024) { bdShowPlan({ error: "That file is too big for the board." }); return; }
+  const rd = new FileReader();
+  rd.onload = async () => { $("#bdPlan").textContent = "Checking..."; bdShowPlan(await api.devboard_use_file(f.name, String(rd.result).split(",")[1])); };
+  rd.readAsDataURL(f);
+}
+function bdButtons() { $("#bdFlash").disabled = !(BD.plan && $("#bdPort").value); }
+async function bdPorts() {
+  const r = await api.devboard_ports();
+  $("#bdPort").innerHTML = r.ports.length ? r.ports.map((p) => `<option value="${esc(p.port)}">${esc(p.port)} · ${esc(p.desc || "ESP32-S2")}</option>`).join("")
+    : `<option value="">No board found (hold BOOT while plugging in)</option>`;
+  bdButtons();
+}
+async function bdShow() {
+  if (BD.loaded) return; BD.loaded = true;
+  const r = await api.devboard_info();
+  $("#bdOfficial").innerHTML = (r.official || []).map((o) => `<option value="${esc(o.channel)}" ${o.channel === "release" ? "selected" : ""}>Black Magic ${esc(o.version)} (${esc(o.channel)})</option>`).join("") || `<option value="">Official firmware unavailable</option>`;
+  bdPorts();
+}
+
+/* ---------- Bluetooth (experimental) ---------- */
+async function btScan() {
+  $("#btStatus").textContent = "Scanning for 6 seconds..."; $("#btList").innerHTML = "";
+  const r = await api.ble_scan();
+  if (r.error) { $("#btStatus").textContent = r.error; return; }
+  $("#btStatus").textContent = r.flippers.length ? `${r.flippers.length} found` : "No Flipper found. Is Bluetooth on in the Flipper's settings?";
+  r.flippers.forEach((f) => {
+    const row = document.createElement("div"); row.className = "vw-btn";
+    row.innerHTML = `<b>${esc(f.name)}</b><span>${esc(f.address)} · signal ${f.rssi ?? "?"} dBm</span>`;
+    const go = document.createElement("button"); go.className = "mini primary"; go.textContent = "Mirror over Bluetooth";
+    go.onclick = async () => {
+      if (MIR.state !== "off") stopMirror();
+      MIR.state = "starting"; $("#mirrorLabel").textContent = "Connecting (Bluetooth)...";
+      const x = await api.ble_mirror_start(f.address);
+      if (x.error) { MIR.state = "off"; toast(x.error); }
+      else toast("Connecting over Bluetooth. If Windows asks for a PIN, type the one on your Flipper.");
+    };
+    row.appendChild(go); $("#btList").appendChild(row);
+  });
+}
+
+/* ---------- phone remote ---------- */
+const RM = { on: false, timer: null };
+async function rmToggle() {
+  if (RM.on) {
+    await api.remote_stop(); RM.on = false; clearInterval(RM.timer);
+    $("#rmBox").hidden = true; $("#rmToggle").textContent = "Turn on"; $("#rmStatus").textContent = "Off"; return;
+  }
+  const r = await api.remote_start();
+  if (r.error) { $("#rmStatus").textContent = r.error; return; }
+  RM.on = true; $("#rmToggle").textContent = "Turn off"; $("#rmBox").hidden = false;
+  $("#rmUrl").textContent = r.url; $("#rmQr").src = r.qr || ""; $("#rmQr").hidden = !r.qr;
+  const upd = async () => { const s = await api.remote_status(); $("#rmStatus").textContent = s.on ? (s.clients.length ? `On · ${s.clients.length} device${s.clients.length > 1 ? "s" : ""} connected` : "On · waiting for your phone") : "Off"; };
+  upd(); RM.timer = setInterval(upd, 3000);
+}
+
+/* ---------- MIFARE user keys ---------- */
+const MK = { keys: [], dirty: false };
+function mkRender() {
+  $("#mkList").innerHTML = MK.keys.map((k, i) => `<span class="key">${k}<button data-i="${i}" title="Remove">×</button></span>`).join("") ||
+    `<span class="tool-status">No keys of your own yet.</span>`;
+  $$("#mkList button").forEach((b) => (b.onclick = () => { MK.keys.splice(+b.dataset.i, 1); MK.dirty = true; mkRender(); mkStatus(); }));
+}
+function mkStatus(t) { $("#mkStatus").textContent = t || `${MK.keys.length} key${MK.keys.length === 1 ? "" : "s"}${MK.dirty ? " · not saved yet" : ""}`; }
+async function mkLoad() {
+  if (!devReady()) { mkStatus("Plug in your Flipper to load its keys"); return; }
+  const r = await api.mf_dict_load();
+  if (r.error) { mkStatus(r.error); return; }
+  MK.keys = r.keys; MK.dirty = false; mkRender(); mkStatus(r.exists ? "" : "No user key file yet; saving creates it");
+}
+/* ---------- NFC: compare two dumps ---------- */
+async function nfcCompare(pathA, a) {
+  const files = await api.files_list(pathA.slice(0, pathA.lastIndexOf("/")));
+  const others = (files.entries || []).filter((e) => !e.dir && /\.nfc$/i.test(e.name) && `${pathA.slice(0, pathA.lastIndexOf("/"))}/${e.name}` !== pathA);
+  const pick = await promptDialog(`Compare with which dump? (${others.map((e) => e.name).slice(0, 6).join(", ")}${others.length > 6 ? "..." : ""})`, others[0] ? others[0].name : "", "Compare");
+  if (!pick) return;
+  const pathB = pick.startsWith("/") ? pick : `${pathA.slice(0, pathA.lastIndexOf("/"))}/${pick}`;
+  const b = await api.files_view(pathB, 0);
+  if (b.error || b.kind !== "nfc") { toast(b.error || "That isn't an NFC dump"); return; }
+  const fa = Object.fromEntries(a.fields), fb2 = Object.fromEntries(b.fields);
+  const keys = [...new Set([...Object.keys(fa), ...Object.keys(fb2)])];
+  const ba = Object.fromEntries(a.blocks || []), bb = Object.fromEntries(b.blocks || []);
+  const bkeys = [...new Set([...Object.keys(ba), ...Object.keys(bb)])].sort((x, y) => (+x.split(" ")[1]) - (+y.split(" ")[1]));
+  const cell = (v, o) => !v ? `<span class="x">missing</span>` : !o ? esc(v) : v.split(" ").map((byte, i) => byte !== (o.split(" ")[i] || "") ? `<span class="x">${esc(byte)}</span>` : esc(byte)).join(" ");
+  const nch = bkeys.filter((k) => ba[k] !== bb[k]).length;
+  const body = $("#vwBody");
+  body.innerHTML = `<div class="vw-note">${esc(pathA.split("/").pop())} vs ${esc(pathB.split("/").pop())}: ${nch} of ${bkeys.length} blocks/pages differ. Differing bytes are red.</div>
+    <div class="nfc-diff"><div class="dr head"><span></span><span>${esc(pathA.split("/").pop())}</span><span>${esc(pathB.split("/").pop())}</span></div>
+    ${keys.map((k) => `<div class="dr ${fa[k] !== fb2[k] ? "ch" : ""}"><span>${esc(k)}</span><span>${esc(fa[k] || "-")}</span><span>${esc(fb2[k] || "-")}</span></div>`).join("")}
+    ${bkeys.map((k) => `<div class="dr ${ba[k] !== bb[k] ? "ch" : ""}"><span>${esc(k)}</span><span>${cell(ba[k], bb[k])}</span><span>${cell(bb[k], ba[k])}</span></div>`).join("")}</div>`;
+  $("#vwTitle").textContent = "Compare NFC dumps";
 }
 async function fmNewFile() {
   const name = await promptDialog("New file", "script.js", "Create");
@@ -2186,6 +2430,10 @@ function bind() {
   $("#mirrorBtn").onclick = toggleMirror;
   $("#shotBtn").onclick = screenshot;
   $("#recBtn").onclick = recToggle;
+  $("#frameBtn").onclick = () => {
+    S.framed = !S.framed; $("#frameBtn").classList.toggle("on", S.framed); api.set_framed(S.framed);
+    toast(S.framed ? "Screenshots and GIFs now come inside a drawn Flipper" : "Plain screenshots and GIFs");
+  };
   $$("#flSeg button").forEach((b) => (b.onclick = () => setSub(b.dataset.sub)));
   $("#fmUp").onclick = () => loadFiles(FM.path.split("/").slice(0, -1).join("/") || "/ext");
   $("#fmRefresh").onclick = () => loadFiles(FM.path);
@@ -2240,6 +2488,55 @@ function bind() {
     else if (e.ctrlKey && e.key.toLowerCase() === "s") { e.preventDefault(); edSave(false); }
   });
   $("#flClean").onclick = openCleanup;
+  $("#flMap").onclick = openSdMap;
+  $("#rmToggle").onclick = rmToggle;
+  $("#btScan").onclick = btScan;
+  $('.tool[data-tool="board"]').addEventListener("toggle", (e) => { if (e.target.open) bdShow(); });
+  $("#bdUseOfficial").onclick = async () => { const c = $("#bdOfficial").value; if (!c) return; $("#bdPlan").textContent = "Downloading and checking..."; bdShowPlan(await api.devboard_use_official(c)); };
+  $("#bdPick").onclick = async () => bdShowPlan(await api.devboard_pick());
+  $("#bdLook").onclick = bdPorts;
+  $("#bdPort").onchange = bdButtons;
+  $("#bdFlash").onclick = async () => {
+    const port = $("#bdPort").value; if (!BD.plan || !port) return;
+    if (!(await confirmDialog("Flash the Wi-Fi dev board?", `<b>${esc(BD.plan.source)}</b> goes onto the board on <code>${esc(port)}</code>, replacing its firmware. Your Flipper isn't touched.`, "Flash"))) return;
+    startJob("files", () => api.devboard_flash(port));
+  };
+  const bd = $("#bdBody");
+  bd.addEventListener("dragover", (e) => { if ([...e.dataTransfer.types].includes("Files")) { e.preventDefault(); e.stopPropagation(); bd.classList.add("drop"); } });
+  bd.addEventListener("dragleave", () => bd.classList.remove("drop"));
+  bd.addEventListener("drop", (e) => {
+    const f = e.dataTransfer.files && e.dataTransfer.files[0];
+    bd.classList.remove("drop");
+    if (!f) return;
+    e.preventDefault(); e.stopPropagation();
+    bdDropFile(f);
+  });
+  $("#rmCopy").onclick = () => { api.copy($("#rmUrl").textContent); toast("Link copied"); };
+  $('.tool[data-tool="devkit"]').addEventListener("toggle", (e) => { if (e.target.open) dkShow(); });
+  $("#dkDir").onclick = async () => { const r = await api.devkit_pick_dir(); if (r.path) { DK.dir = r.path; dkShow(); } };
+  $("#dkCreate").onclick = dkCreate;
+  $("#logFollow").onclick = async () => {
+    if (CLI.follow) { api.log_follow_stop(); return; }          // ends with a done event
+    if (!needDevice()) return;
+    CLI.follow = true; CLI.partial = ""; $("#logFollow").classList.add("on");
+    $("#logFollow").lastChild.textContent = "Stop following";
+    cliPrint(`>: log ${$("#logLevel").value}${$("#logFilter").value ? `   (showing lines with "${$("#logFilter").value}")` : ""}   (other USB actions keep working)\n`, "cmd");
+    const r = await api.log_follow_start($("#logLevel").value);
+    if (r && r.error) { cliPrint(r.error + "\n", "err"); CLI.follow = false; $("#logFollow").classList.remove("on"); $("#logFollow").lastChild.textContent = "Follow log"; }
+  };
+  $('.tool[data-tool="mfkeys"]').addEventListener("toggle", (e) => { if (e.target.open && !MK.loaded) { MK.loaded = true; mkLoad(); } });
+  $("#mkLoad").onclick = mkLoad;
+  $("#mkAddBtn").onclick = () => {
+    const found = ($("#mkAdd").value.toUpperCase().match(/[0-9A-F]{12}/g) || []).filter((k) => !MK.keys.includes(k));
+    MK.keys.push(...new Set(found)); MK.dirty = MK.dirty || found.length > 0; $("#mkAdd").value = ""; mkRender();
+    mkStatus(found.length ? `Added ${found.length}` : "No new 12-character keys found");
+  };
+  $("#mkSave").onclick = async () => {
+    if (!needDevice()) return;
+    const r = await api.mf_dict_save(MK.keys);
+    if (r.error) { mkStatus(r.error); return; }
+    MK.dirty = false; mkStatus(`Saved ${r.count} keys to the Flipper`);
+  };
   $("#flFirmware").onclick = openFirmware;
   $("#fmNewFile").onclick = () => (devReady() ? fmNewFile() : needDevice());
   $("#cliStop").onclick = () => api.cli_stop();
@@ -2256,7 +2553,21 @@ function bind() {
     if (p) { $("#url").value = p; renderPreview(); toast("Folder picked. Press Build"); }
   };
   $("#sdkPill").onclick = () => startJob("sdk", () => api.update_sdk(S.fw));
-  $("#devicePill").onclick = () => { api.refresh_device(); toast("Looking for your Flipper..."); };
+  $("#devicePill").onclick = async () => {
+    const r = await api.flipper_ports();
+    if ((r.ports || []).length > 1) {          // several Flippers: pick one
+      const list = r.ports.map((p, i) => `${i + 1}. ${p.port}${p.name ? " (" + p.name + ")" : ""}${p.port === r.selected ? " - in use" : ""}`).join("<br>");
+      const asking = promptDialog(`Which Flipper? Type its number:`, "1", "Use it");
+      $("#cfBody").innerHTML = list;
+      const ans = await asking;
+      const pick = r.ports[parseInt(ans || "", 10) - 1];
+      if (!pick) { if (ans !== null) toast(`Pick 1 to ${r.ports.length}: ${r.ports.map((p) => p.port).join(", ")}`); return; }
+      const x = await api.flipper_select(pick.port);
+      toast(x.error || `Using the Flipper on ${pick.port}`);
+      return;
+    }
+    api.refresh_device(); toast("Looking for your Flipper...");
+  };
   $("#repoBtn").onclick = () => api.open_url(S.repoUrl);
   $("#rebuildAll").onclick = () => startRebuild(null);
   $("#search").addEventListener("input", () => renderCatalog());
@@ -2297,11 +2608,16 @@ function bind() {
   });
 
   let dragDepth = 0;
-  window.addEventListener("dragenter", (e) => { e.preventDefault(); dragDepth++; $("#drop").classList.add("on"); });
+  window.addEventListener("dragenter", (e) => {
+    e.preventDefault();
+    if (bdOpen() && [...e.dataTransfer.types].includes("Files")) { $("#bdBody").classList.add("drop"); return; }   // firmware for the dev board
+    dragDepth++; $("#drop").classList.add("on");
+  });
   window.addEventListener("dragleave", () => { if (--dragDepth <= 0) { dragDepth = 0; $("#drop").classList.remove("on"); } });
   window.addEventListener("dragover", (e) => e.preventDefault());
   window.addEventListener("drop", (e) => {
     e.preventDefault(); dragDepth = 0; $("#drop").classList.remove("on");
+    if (bdOpen() && e.dataTransfer.files && e.dataTransfer.files.length) { $("#bdBody").classList.remove("drop"); bdDropFile(e.dataTransfer.files[0]); return; }
     const t = e.dataTransfer.getData("text/uri-list") || e.dataTransfer.getData("text/plain");
     if (t && t.includes("github.com")) { setTab("build"); $("#url").value = t.split("\n")[0].trim(); renderPreview(); LCD.poke(); toast("Link dropped"); }
     else toast("That's not a GitHub link");
@@ -2325,6 +2641,7 @@ async function boot() {
   initBar();
   const lcdReady = LCD.init();
   const info = await api.init();
+  S.framed = !!info.frame_shots; $("#frameBtn").classList.toggle("on", S.framed);
   S.autoBackup = info.auto_backup !== false; $("#bkAuto").checked = S.autoBackup;
   S.fws = info.firmwares; S.fw = info.fw; S.after = info.after || "none"; S.autoFw = info.auto_fw !== false;
   S.recent = info.recent || []; S.repoUrl = info.repo; S.outDir = info.out_dir;

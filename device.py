@@ -23,6 +23,7 @@ import serial.tools.list_ports as list_ports
 FLIPPER_VID, FLIPPER_PID = 0x0483, 0x5740
 _port_lock = threading.RLock()  # one conversation with the Flipper at a time
 _mirror = None                  # the running screen mirror, if any (it holds the port while it runs)
+_streams = []                   # other long-running port users that step aside for CLI jobs (log follower)
 
 
 class DeviceError(Exception):
@@ -36,10 +37,17 @@ def _exclusive():
     resume = m is not None and m.running
     if resume:
         m.pause()
+    me = threading.current_thread()
+    paused = [x for x in list(_streams) if x.running and x._thread is not me]
+    for x in paused:
+        x.pause()
     try:
         with _port_lock:
             yield
     finally:
+        for x in paused:
+            if x in _streams:
+                x.resume()
         if resume and _mirror is m:
             m.resume()
 
@@ -483,6 +491,123 @@ def start_update(port, sdk_dirs, remote_dir):
         finally:
             _safe_stop(st)
     return True
+
+
+def sd_tree(port, sdk_dirs, should_stop=lambda: False):
+    """The whole SD card as a size tree: {"name", "path", "size", "files", "children": [...]} (folders only;
+    a folder's own loose files are summed into it), plus totals by file type."""
+    by_type = {}
+
+    def walk(st, path, name):
+        node = {"name": name, "path": path, "size": 0, "files": 0, "children": []}
+        for kind, n, size in _list(st, path):
+            if should_stop():
+                raise DeviceError("Cancelled.")
+            if kind == "D":
+                if path == "/ext" and n == "System Volume Information":
+                    continue
+                child = walk(st, f"{path}/{n}", n)
+                node["children"].append(child)
+                node["size"] += child["size"]
+                node["files"] += child["files"]
+            else:
+                node["size"] += size
+                node["files"] += 1
+                ext = n.rsplit(".", 1)[-1].lower() if "." in n else "(none)"
+                t = by_type.setdefault(ext, [0, 0])
+                t[0] += size
+                t[1] += 1
+        node["children"].sort(key=lambda c: -c["size"])
+        return node
+    tree = storage_call(port, sdk_dirs, lambda mod, st: walk(st, "/ext", "SD card"), seconds=300)
+    types = sorted(([k, v[0], v[1]] for k, v in by_type.items()), key=lambda x: -x[1])
+    return {"tree": tree, "types": types}
+
+
+class LogFollower:
+    """Streams `log <level>` for as long as wanted, but steps aside (Ctrl+C, port released) whenever
+    another USB job needs the Flipper, then picks up again. on_text gets the text, on_end the reason."""
+
+    LEVELS = ("error", "warn", "info", "debug", "trace")
+
+    def __init__(self, port, sdk_dirs, level, on_text, on_end=lambda reason: None):
+        self.port, self.sdk_dirs = port, sdk_dirs
+        self.level = level if level in self.LEVELS else "debug"
+        self.on_text, self.on_end = on_text, on_end
+        self.running = False
+        self._stop = threading.Event()
+        self._paused = threading.Event()
+        self._idle = threading.Event()
+        self._thread = None
+
+    def start(self):
+        self.running = True
+        _streams.append(self)
+        self._thread = threading.Thread(target=self._run, daemon=True, name="log-follow")
+        self._thread.start()
+
+    def stop(self):
+        self._stop.set()
+
+    def pause(self):
+        self._paused.set()
+        self._idle.wait(10)
+
+    def resume(self):
+        self._idle.clear()
+        self._paused.clear()
+
+    def _session(self):
+        with _port_lock:
+            self._idle.clear()
+            mod, st = _open_guarded(self.port, self.sdk_dirs)
+            ser = st.port
+            try:
+                ser.timeout = 0.15
+                st.read.buffer = bytearray()
+                ser.reset_input_buffer()
+                ser.write(f"log {self.level}\r".encode())
+                buf, echo = b"", False
+                while not (self._stop.is_set() or self._paused.is_set()):
+                    chunk = ser.read(4096)
+                    if not chunk:
+                        continue
+                    buf += chunk
+                    if not echo:
+                        nl = buf.find(b"\n")
+                        if nl < 0:
+                            continue
+                        buf, echo = buf[nl + 1:], True
+                    cut = buf.rfind(b"\n") + 1           # pass on whole lines only
+                    if cut:
+                        text, buf = buf[:cut], buf[cut:]
+                        self.on_text(_ANSI.sub("", text.decode("utf-8", "replace")).replace("\r\n", "\n").replace("\r", ""))
+                ser.write(b"\x03")                       # end the stream, wait for the prompt
+                t0 = time.time()
+                tail = b""
+                while time.time() - t0 < 3 and not tail.rstrip().endswith(b">:"):
+                    tail += ser.read(256)
+            finally:
+                _safe_stop(st)
+                self._idle.set()
+
+    def _run(self):
+        reason = "stopped"
+        try:
+            while not self._stop.is_set():
+                if self._paused.is_set():
+                    self._idle.set()
+                    time.sleep(0.1)
+                    continue
+                self._session()
+        except Exception as e:  # noqa: BLE001
+            reason = f"error: {e}"
+        finally:
+            self.running = False
+            self._idle.set()
+            if self in _streams:
+                _streams.remove(self)
+            self.on_end(reason)
 
 
 TEMP_SUFFIXES = (".fwtmp", ".tmp", ".temp", ".part", ".bak~")

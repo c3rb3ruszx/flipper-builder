@@ -58,6 +58,7 @@
         <span class="rec"></span><span id="mirrorLabel">Mirror my Flipper</span>
       </button>
       <button class="icon-btn" id="shotBtn" hidden title="Save a screenshot of the Flipper's screen"><i data-icon="camera"></i></button>
+      <button class="icon-btn" id="frameBtn" hidden title="Put screenshots and GIFs inside a drawn Flipper"><i data-icon="frame"></i></button>
       <button class="icon-btn rec-btn" id="recBtn" hidden title="Record the Flipper's screen as a GIF (up to 60 s)"><i data-icon="record"></i><span id="recTime"></span></button>
     </div>
   </section>
@@ -161,6 +162,7 @@
           <div class="fl-actions">
             <button class="mini" id="flUpdateAll" hidden title="Install your newer builds over the apps on the Flipper"><i data-icon="download"></i><span id="flUpdateLabel">Update</span></button>
             <button class="mini" id="flFirmware" title="Update your Flipper's firmware"><i data-icon="usb"></i>Firmware</button>
+            <button class="mini" id="flMap" title="See what fills the SD card"><i data-icon="folder"></i>SD map</button>
             <button class="mini" id="flClean" title="Find duplicate apps, apps that won't open, old update packages and leftover temp files"><i data-icon="trash"></i>Clean up</button>
             <button class="mini" id="flRefresh" title="Read the Flipper's apps again"><i data-icon="refresh"></i>Refresh</button>
           </div>
@@ -212,6 +214,17 @@
 
         <div class="sub-pane" id="subTools" hidden>
           <div class="tools" id="toolsBody">
+            <details class="tool" data-tool="devkit">
+              <summary><b>New app</b><span>Start your own Flipper app from a template</span></summary>
+              <div class="tool-body">
+                <div class="tool-row"><input id="dkName" type="text" maxlength="30" spellcheck="false" placeholder="App name, e.g. Dice Roller">
+                  <select id="dkCat"></select></div>
+                <div class="vw-btns" id="dkTemplates"></div>
+                <div class="tool-row"><button class="mini" id="dkDir"><i data-icon="folder"></i>Choose folder</button><span class="tool-status" id="dkDirText"></span>
+                  <button class="mini primary" id="dkCreate">Create</button></div>
+                <div class="vw-note" id="dkResult"></div>
+              </div>
+            </details>
             <details class="tool" open data-tool="music">
               <summary><b>Music</b><span>MIDI and ringtones for the Flipper's Music Player</span></summary>
               <div class="tool-body">
@@ -261,6 +274,41 @@
                 <div id="syPlan"></div>
               </div>
             </details>
+            <details class="tool" data-tool="mfkeys">
+              <summary><b>MIFARE keys</b><span>Your own keys the Flipper tries when reading MIFARE Classic cards</span></summary>
+              <div class="tool-body">
+                <div class="vw-note">Keys you add here go to <code>nfc/assets/mf_classic_dict_user.nfc</code>; the Flipper tries them on top of its built-in list. One key is 12 hex characters, e.g. <code>A0A1A2A3A4A5</code>.</div>
+                <textarea id="mkAdd" spellcheck="false" placeholder="Paste one or more keys (any separators)"></textarea>
+                <div class="tool-row"><button class="mini" id="mkAddBtn">Add</button><button class="mini" id="mkLoad">Reload from Flipper</button><span class="tool-status" id="mkStatus"></span><button class="mini primary" id="mkSave">Save to Flipper</button></div>
+                <div class="key-list" id="mkList"></div>
+              </div>
+            </details>
+            <details class="tool" data-tool="board">
+              <summary><b>Wi-Fi dev board</b><span>Flash the ESP32-S2 Wi-Fi board: official firmware or your own file</span></summary>
+              <div class="tool-body" id="bdBody">
+                <div class="vw-note"><b>1.</b> Unplug the board from the Flipper. <b>2.</b> Hold its <b>BOOT</b> button while plugging its own USB port into this PC, then let go. <b>3.</b> Pick a firmware and flash. Only ESP32-S2 firmware is accepted, and each part is checked before anything is written.</div>
+                <div class="tool-row"><select id="bdOfficial"></select><button class="mini" id="bdUseOfficial">Use this</button><span class="tool-or">or</span>
+                  <button class="mini" id="bdPick"><i data-icon="folder"></i>Choose a file</button><span class="tool-or">(or drop a .bin / .zip / .tgz here)</span></div>
+                <div class="vw-note" id="bdPlan"></div>
+                <div class="tool-row"><select id="bdPort"></select><button class="mini" id="bdLook">Look for the board</button><button class="mini primary" id="bdFlash" disabled>Flash</button></div>
+              </div>
+            </details>
+            <details class="tool" data-tool="ble">
+              <summary><b>Bluetooth</b><span>Experimental: mirror and control your Flipper without a cable</span></summary>
+              <div class="tool-body">
+                <div class="vw-note">Turn Bluetooth on (on the Flipper and on this PC), then scan. The first time, your Flipper shows a PIN and Windows asks for it. While mirroring over Bluetooth, the screen, buttons, screenshots and GIFs work; files and builds still use USB.</div>
+                <div class="tool-row"><button class="mini" id="btScan">Scan</button><span class="tool-status" id="btStatus"></span></div>
+                <div class="vw-btns" id="btList"></div>
+              </div>
+            </details>
+            <details class="tool" data-tool="remote">
+              <summary><b>Phone remote</b><span>Your Flipper's screen and buttons on your phone, over your home Wi-Fi</span></summary>
+              <div class="tool-body">
+                <div class="vw-note">Open the link (or scan the code) on a phone on the same Wi-Fi. It only works on your home network, only with this link's secret code, and stops when you switch it off or close Workbench. Windows may ask once whether to allow Workbench on private networks: allow it for this to work.</div>
+                <div class="tool-row"><button class="mini primary" id="rmToggle">Turn on</button><span class="tool-status" id="rmStatus">Off</span></div>
+                <div class="remote-box" id="rmBox" hidden><img id="rmQr" alt=""><div><code id="rmUrl"></code><br><button class="mini" id="rmCopy">Copy link</button></div></div>
+              </div>
+            </details>
             <details class="tool" data-tool="companion">
               <summary><b>Companion app</b><span>A small app on your Flipper that shows what Workbench did</span></summary>
               <div class="tool-body">
@@ -272,6 +320,11 @@
         </div>
 
         <div class="sub-pane" id="subCli" hidden>
+          <div class="tool-row cli-log-bar">
+            <button class="mini" id="logFollow" title="Stream the Flipper's log (Stop ends it)"><i data-icon="terminal"></i>Follow log</button>
+            <select id="logLevel"><option value="info">Info</option><option value="debug" selected>Debug</option><option value="trace">Trace</option><option value="warn">Warnings</option><option value="error">Errors</option></select>
+            <input id="logFilter" type="text" spellcheck="false" placeholder="Only lines with... (e.g. your app id)">
+          </div>
           <div class="cli-term" id="cliTerm">
             <pre class="cli-out" id="cliOut"></pre>
             <div class="cli-line">

@@ -210,7 +210,49 @@ def _frame_image(data, orient, scale=4, pad=4):
     return out
 
 
-def save_gif(frames, t_end, folder):
+# palette for framed pictures: 0 LCD orange, 1 ink, then the drawn device body
+FRAME_PALETTE = [255, 140, 41, 0, 0, 0, 236, 233, 228, 200, 196, 190, 22, 22, 22, 255, 130, 0, 120, 116, 110, 248, 246, 242]
+_FRAME_BASE = {}
+
+
+def _device_base(scale=4):
+    """A simple drawn Flipper-style body (our own drawing) with a hole for the 128x64 screen."""
+    from PIL import Image, ImageDraw
+    if scale in _FRAME_BASE:
+        return _FRAME_BASE[scale]
+    s = scale
+    sw, sh = 128 * s, 64 * s
+    W, H = 18 * s + sw + 118 * s, sh + 52 * s
+    img = Image.new("P", (W, H), 7)
+    img.putpalette(FRAME_PALETTE + [0] * (768 - len(FRAME_PALETTE)))
+    d = ImageDraw.Draw(img)
+    d.rounded_rectangle((4 * s, 6 * s, W - 4 * s, H - 2 * s), radius=26 * s, fill=3)          # shadow
+    d.rounded_rectangle((2 * s, 2 * s, W - 6 * s, H - 6 * s), radius=26 * s, fill=2)          # body
+    sx, sy = 18 * s, 22 * s
+    d.rounded_rectangle((sx - 7 * s, sy - 7 * s, sx + sw + 7 * s, sy + sh + 7 * s), radius=6 * s, fill=4)  # bezel
+    d.ellipse((sx - 4 * s, sy - 15 * s, sx, sy - 11 * s), fill=5)                             # LED
+    cx, cy, r = sx + sw + 62 * s, sy + sh // 2 - 2 * s, 30 * s                                  # d-pad
+    d.ellipse((cx - r, cy - r, cx + r, cy + r), fill=3, outline=6, width=s)
+    d.ellipse((cx - 10 * s, cy - 10 * s, cx + 10 * s, cy + 10 * s), fill=5)
+    for dx, dy in ((0, -1), (0, 1), (-1, 0), (1, 0)):
+        tx, ty = cx + dx * 21 * s, cy + dy * 21 * s
+        d.regular_polygon((tx, ty, 3 * s), 3, rotation={(0, -1): 0, (0, 1): 180, (-1, 0): 90, (1, 0): 270}[(dx, dy)], fill=6)
+    bx, by = cx + 22 * s, cy + 36 * s                                                           # back button
+    d.ellipse((bx - 9 * s, by - 9 * s, bx + 9 * s, by + 9 * s), fill=3, outline=6, width=s)
+    _FRAME_BASE[scale] = (img, (sx, sy))
+    return _FRAME_BASE[scale]
+
+
+def _framed(data, orient, scale=4):
+    """The Flipper's screen inside the drawn device (palette image, GIF-friendly)."""
+    base, (sx, sy) = _device_base(scale)
+    lcd = _frame_image(data, orient, scale=scale, pad=0)
+    out = base.copy()
+    out.paste(lcd, (sx, sy))            # lcd uses indices 0/1, same palette
+    return out
+
+
+def save_gif(frames, t_end, folder, framed=False):
     """frames: [(time, 1024 bytes, orient)], oldest first. Identical frames in a row are merged."""
     if not frames:
         raise ValueError("No frames: the Flipper's screen didn't send anything.")
@@ -224,7 +266,7 @@ def save_gif(frames, t_end, folder):
     images, durations = [], []
     for i, (data, orient, t) in enumerate(merged):
         nxt = merged[i + 1][2] if i + 1 < len(merged) else max(t_end, t + 0.5)
-        images.append(_frame_image(data, orient))
+        images.append(_framed(data, orient) if framed else _frame_image(data, orient))
         durations.append(max(20, int(round((nxt - t) * 1000 / 10)) * 10))   # GIF timing is in 10 ms steps
     p = folder / time.strftime("flipper_%Y-%m-%d_%H%M%S.gif")
     images[0].save(p, save_all=True, append_images=images[1:], duration=durations, loop=0, optimize=False, disposal=1)
@@ -344,6 +386,7 @@ class Api:
             "device": self._device,
             "library_count": len(fb.load_library()),
             "auto_backup": s.get("auto_backup", True),
+            "frame_shots": bool(s.get("frame_shots")),
         }
 
     def clipboard(self):
@@ -619,7 +662,7 @@ class Api:
                 ports = device.find_ports()
             except Exception:  # noqa: BLE001
                 ports = []
-            key = tuple(sorted(p["port"] for p in ports))
+            key = (tuple(sorted(p["port"] for p in ports)), getattr(self, "_sel_port", None))
             if key == known and not forced:
                 continue
             if self._job and key == known:
@@ -627,10 +670,11 @@ class Api:
             known = key
             if not ports:
                 self._device = {"connected": False}
-            elif len(ports) > 1:
-                self._device = {"connected": True, "error": "More than one Flipper is plugged in."}
+            elif len(ports) > 1 and not any(x["port"] == getattr(self, "_sel_port", None) for x in ports):
+                self._device = {"connected": True, "error": "More than one Flipper is plugged in: pick one in the header.",
+                                "choices": ports}
             else:
-                p = ports[0]
+                p = next((x for x in ports if x["port"] == getattr(self, "_sel_port", None)), ports[0])
                 time.sleep(0.6)  # let the USB serial settle after plug-in
                 try:
                     info = device.read_info(p["port"], fb.sdk_dirs())
@@ -656,8 +700,26 @@ class Api:
         if not ports:
             raise fb.BuildError("No Flipper found on USB. Plug it in, unlock it, and close qFlipper.")
         if len(ports) > 1:
-            raise fb.BuildError("More than one Flipper is plugged in. Leave just one connected.")
+            sel = getattr(self, "_sel_port", None)
+            if any(x["port"] == sel for x in ports):
+                return sel
+            raise fb.BuildError("More than one Flipper is plugged in. Pick one in the header.")
         return ports[0]["port"]
+
+    def flipper_ports(self):
+        import device
+        return {"ports": device.find_ports(), "selected": getattr(self, "_sel_port", None)}
+
+    def flipper_select(self, port):
+        """Use this Flipper when several are plugged in (remembered for this run)."""
+        import device
+        if not any(x["port"] == port for x in device.find_ports()):
+            return {"error": "That Flipper isn't plugged in any more."}
+        if getattr(self, "_mirror", None):
+            self.mirror_stop()
+        self._sel_port = port
+        self._device_refresh.set()
+        return {"ok": True}
 
     _META_CACHE = fb.ROOT / ".cache" / "flipper_meta.json"
 
@@ -1273,6 +1335,249 @@ class Api:
                                 "If it's stuck, hold Left + Back to restart it; qFlipper's Repair can always restore it.")
         return self._run_job("firmware", work)
 
+    # ------------------------------------------------ Bluetooth (experimental): mirror over BLE
+    def ble_scan(self):
+        import ble
+        try:
+            return {"flippers": ble.scan(6)}
+        except Exception as e:  # noqa: BLE001
+            msg = str(e)
+            if "not powered on" in msg.lower() or "powered_off" in msg.lower():
+                return {"error": "Bluetooth is off on this PC. Turn it on in Windows settings, then scan again."}
+            if "not available" in msg.lower() or "no bluetooth" in msg.lower():
+                return {"error": "This PC has no Bluetooth adapter Windows can use."}
+            return {"error": f"Bluetooth scan failed: {msg}"}
+
+    def ble_mirror_start(self, address):
+        import ble
+        if getattr(self, "_mirror", None):
+            self.mirror_stop()
+        self._frame = None
+        self._frame_seq = 0
+
+        def on_frame(data, orient):
+            self._frame = (data, orient)
+            self._frame_seq += 1
+            rec = getattr(self, "_rec", None)
+            if rec is not None and len(rec) < 3000:
+                rec.append((time.time(), bytes(data), orient))
+
+        def on_state(state, detail=""):
+            self._emit("mirror", state=state, detail=detail)
+        self._mirror = ble.BleMirror(address, on_frame, on_state)
+        self._mirror.start()
+        if not getattr(self, "_frame_thread", None):
+            self._frame_thread = threading.Thread(target=self._frame_pump, daemon=True)
+            self._frame_thread.start()
+        return {"ok": True}
+
+    # ------------------------------------------------ Wi-Fi dev board (ESP32-S2) flasher
+    def devboard_info(self):
+        import devboard
+        try:
+            off = devboard.official()
+        except Exception as e:  # noqa: BLE001
+            off, err = [], str(e)
+        else:
+            err = None
+        return {"official": off, "ports": devboard.find_ports(), "error": err}
+
+    def devboard_ports(self):
+        import devboard
+        return {"ports": devboard.find_ports()}
+
+    def _plan_summary(self, plan, source):
+        self._board_plan = (plan, source)
+        return {"source": source, "parts": [[hex(a), label, len(b)] for a, label, b in plan]}
+
+    def devboard_use_official(self, channel):
+        import devboard
+        t = next((x for x in devboard.official() if x["channel"] == channel), None)
+        if not t:
+            return {"error": "That firmware isn't on Flipper's server right now."}
+        try:
+            return self._plan_summary(devboard.plan_official(t, fb.ROOT / ".cache" / "devboard"), f"Black Magic {t['version']} ({t['channel']})")
+        except devboard.BoardError as e:
+            return {"error": str(e)}
+        except Exception as e:  # noqa: BLE001
+            return {"error": f"Download failed: {e}"}
+
+    def devboard_use_file(self, name, b64=None, path=None):
+        """A firmware file the user dropped (bytes from the page) or picked (path)."""
+        import base64
+        import devboard
+        try:
+            data = Path(path).read_bytes() if path else base64.b64decode(b64 or "")
+            if len(data) > 16 * 1024 * 1024:
+                return {"error": "That file is too big for the board's 4 MB flash."}
+            return self._plan_summary(devboard.plan_from_bytes(name, data), name)
+        except devboard.BoardError as e:
+            return {"error": str(e)}
+        except Exception as e:  # noqa: BLE001
+            return {"error": f"Couldn't read that file: {e}"}
+
+    def devboard_pick(self):
+        p = self._pick(("Firmware (*.bin;*.zip;*.tgz;*.gz)", "All files (*.*)"))
+        if not p:
+            return {"cancelled": True}
+        return self.devboard_use_file(Path(p).name, path=p)
+
+    def devboard_flash(self, port):
+        import devboard
+        plan = getattr(self, "_board_plan", None)
+        if not plan:
+            return {"error": "Choose a firmware first."}
+        if not any(x["port"] == port for x in devboard.find_ports()):
+            return {"error": "The board isn't on that port any more. Plug it in with BOOT held and look again."}
+        parts, source = plan
+
+        def work(job):
+            job.stage("send", source)
+            job.log(f"== Flashing {source} to the Wi-Fi dev board on {port}")
+            try:
+                devboard.flash(port, parts, fb.ROOT / ".cache" / "devboard" / "flash", log=job.log)
+            except devboard.BoardError as e:
+                raise fb.BuildError(str(e))
+            job.log("OK Flashed. The board restarts by itself.")
+            return {"send_only": True, "quiet": True, "board_done": source}
+        return self._run_job("files", work)
+
+    # ------------------------------------------------ phone remote (home network only, off by default)
+    def remote_start(self):
+        import base64
+        import io
+        import remote
+        if getattr(self, "_remote", None):
+            r = self._remote
+        else:
+            def get_frame():
+                f = self._frame
+                m = getattr(self, "_mirror", None)
+                return (getattr(self, "_frame_seq", 0), f[0] if f else None, f[1] if f else 0, bool(m and m.running))
+
+            def press(key, kind):
+                self.mirror_press(key, kind)
+
+            def ensure_mirror():
+                m = getattr(self, "_mirror", None)
+                if not (m and m.running) and self._device.get("connected"):
+                    self.mirror_start()
+            r = remote.Remote(get_frame, press, ensure_mirror)
+            try:
+                r.start()
+            except OSError as e:
+                return {"error": str(e)}
+            self._remote = r
+        url = r.url()
+        qr = ""
+        try:
+            import qrcode
+            img = qrcode.make(url, box_size=6, border=2)
+            buf = io.BytesIO()
+            img.save(buf, format="PNG")
+            qr = "data:image/png;base64," + base64.b64encode(buf.getvalue()).decode()
+        except Exception:  # noqa: BLE001
+            pass
+        return {"url": url, "qr": qr, "clients": sorted(r.clients)}
+
+    def remote_stop(self):
+        r = getattr(self, "_remote", None)
+        if r:
+            r.stop()
+            self._remote = None
+        return {"ok": True}
+
+    def remote_status(self):
+        r = getattr(self, "_remote", None)
+        return {"on": bool(r), "clients": sorted(r.clients) if r else []}
+
+    # ------------------------------------------------ app dev kit
+    def devkit_templates(self):
+        import devkit
+        return {"templates": [[k, v[0], v[1]] for k, v in devkit.TEMPLATES.items()], "categories": devkit.CATEGORIES,
+                "default_dir": str(fb.ROOT / "projects"), "vscode": bool(__import__("shutil").which("code"))}
+
+    def devkit_pick_dir(self):
+        p = self._pick(folder=True)
+        return {"path": p} if p else {"cancelled": True}
+
+    def devkit_create(self, name, template, category, parent=None):
+        import devkit
+        try:
+            r = devkit.create(parent or (fb.ROOT / "projects"), name, template, category)
+        except Exception as e:  # noqa: BLE001
+            return {"error": str(e)}
+        return r
+
+    def devkit_open_code(self, folder):
+        import shutil
+        code = shutil.which("code")
+        if not code or not Path(folder).is_dir():
+            return {"error": "VS Code isn't installed (or not on PATH)."}
+        subprocess.Popen([code, folder], creationflags=0x08000000 if os.name == "nt" else 0)
+        return {"ok": True}
+
+    def devkit_send_js(self, local_js):
+        """Copy a JS app to /ext/apps/Scripts/ and return its path there."""
+        import device
+        p = Path(local_js)
+        if p.suffix.lower() != ".js" or not p.is_file():
+            return {"error": "Not a .js file."}
+        remote = f"/ext/apps/Scripts/{p.name}"
+        try:
+            device.write_file(self._port(), fb.sdk_dirs(), remote, p.read_bytes())
+            return {"ok": True, "path": remote}
+        except (fb.BuildError, device.DeviceError) as e:
+            return {"error": str(e)}
+
+    # ------------------------------------------------ NFC: user MIFARE Classic key dictionary
+    MF_DICT = "/ext/nfc/assets/mf_classic_dict_user.nfc"
+
+    def mf_dict_load(self):
+        import device
+        try:
+            port = self._port()
+            if not device.file_exists(port, fb.sdk_dirs(), self.MF_DICT):
+                return {"keys": [], "exists": False}
+            text = device.read_file(port, fb.sdk_dirs(), self.MF_DICT).decode("utf-8", "replace")
+        except (fb.BuildError, device.DeviceError) as e:
+            return {"error": str(e)}
+        keys = []
+        for line in text.splitlines():
+            k = line.strip().upper()
+            if re.fullmatch(r"[0-9A-F]{12}", k) and k not in keys:
+                keys.append(k)
+        return {"keys": keys, "exists": True}
+
+    def mf_dict_save(self, keys):
+        import device
+        clean = []
+        for k in keys or []:
+            k = re.sub(r"\s+", "", str(k)).upper()
+            if not re.fullmatch(r"[0-9A-F]{12}", k):
+                return {"error": f"'{k}' isn't a MIFARE key (12 hex characters)."}
+            if k not in clean:
+                clean.append(k)
+        text = "# MIFARE Classic user keys, managed with Flipper Workbench\n" + "".join(f"{k}\n" for k in clean)
+        try:
+            device.write_file(self._port(), fb.sdk_dirs(), self.MF_DICT, text.encode("ascii"))
+            return {"ok": True, "count": len(clean)}
+        except (fb.BuildError, device.DeviceError) as e:
+            return {"error": str(e)}
+
+    def sd_map(self):
+        import device
+        try:
+            port = self._port()
+            r = device.sd_tree(port, fb.sdk_dirs())
+            try:
+                r["free_kib"] = device.sd_free_kib(port, fb.sdk_dirs())
+            except Exception:  # noqa: BLE001
+                r["free_kib"] = None
+            return r
+        except (fb.BuildError, device.DeviceError) as e:
+            return {"error": str(e)}
+
     def cleanup_scan(self):
         import device
         try:
@@ -1575,7 +1880,7 @@ class Api:
         t_end = min(time.time(), self._rec_t0 + self.REC_MAX)
         rec = [r for r in rec if r[0] <= t_end]
         try:
-            p = save_gif(rec, t_end, fb.ROOT / "recordings")
+            p = save_gif(rec, t_end, fb.ROOT / "recordings", framed=bool(fb.load_settings().get("frame_shots")))
         except Exception as e:  # noqa: BLE001
             return {"error": f"Couldn't save the GIF: {e}"}
         _reveal(p)
@@ -1621,11 +1926,48 @@ class Api:
         threading.Thread(target=work, daemon=True).start()
         return {"ok": True}
 
+    def log_follow_start(self, level="debug"):
+        """Follow the Flipper's log; other USB jobs still work (the follower steps aside for them)."""
+        import device
+        if getattr(self, "_logf", None) and self._logf.running:
+            return {"ok": True}
+        try:
+            port = self._port()
+        except fb.BuildError as e:
+            return {"error": str(e)}
+        self._logf = device.LogFollower(port, fb.sdk_dirs(), level,
+                                        lambda text: self._emit("cli", text=text, log=True),
+                                        lambda reason: self._emit("cli", log=True, done=True, ended="stopped" if reason == "stopped" else "error",
+                                                                  error=None if reason == "stopped" else reason))
+        self._logf.start()
+        return {"ok": True}
+
+    def log_follow_stop(self):
+        lf = getattr(self, "_logf", None)
+        if lf:
+            lf.stop()
+        return {"ok": True}
+
     def cli_stop(self):
         ev = getattr(self, "_cli_stop", None)
         if ev:
             ev.set()
         return {"ok": True}
+
+    def set_framed(self, on):
+        fb.save_settings(frame_shots=bool(on))
+        return {"ok": True}
+
+    def save_screenshot_framed(self):
+        """The current mirrored screen inside a drawn Flipper, as PNG."""
+        if self._frame is None:
+            return {"error": "No screen yet."}
+        d = fb.ROOT / "screenshots"
+        d.mkdir(parents=True, exist_ok=True)
+        p = d / time.strftime("flipper_%Y-%m-%d_%H%M%S.png")
+        _framed(*self._frame).convert("RGB").save(p)
+        _reveal(p)
+        return {"path": str(p)}
 
     def save_screenshot(self, png_b64):
         import base64

@@ -31,6 +31,14 @@ cp assets/icon.png ui/icon.png
   --hidden-import anim \
   --hidden-import assetpacks \
   --hidden-import sync \
+  --hidden-import devkit \
+  --hidden-import remote \
+  --hidden-import devboard \
+  --hidden-import ble \
+  --hidden-import qrcode \
+  --collect-all esptool \
+  --collect-all bleak \
+  --collect-submodules qrcode \
   --hidden-import PIL.ImageSequence \
   --hidden-import flipper_storage \
   --hidden-import fapmeta \

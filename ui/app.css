@@ -783,3 +783,52 @@ details.vw-details summary { cursor: pointer; color: var(--muted); font-size: 13
 .sy-step .act.upload { color: var(--orange-2); } .sy-step .act.download { color: var(--blue); }
 .sy-step .act.delete_remote, .sy-step .act.delete_local { color: var(--err); } .sy-step .act.conflict { color: #ffd166; }
 .sy-steps { max-height: 260px; overflow: auto; border: 1px solid var(--line); border-radius: 8px; }
+
+/* ---------- SD card map ---------- */
+.map-crumbs { display: flex; gap: 6px; align-items: center; flex-wrap: wrap; font: 13px var(--mono); }
+.map-crumbs button { background: none; border: 0; color: var(--orange-2); font: inherit; cursor: pointer; padding: 0; }
+.map-crumbs span { color: var(--dim); }
+.treemap { position: relative; height: 340px; border-radius: 10px; overflow: hidden; background: #0a0a0a; border: 1px solid var(--line); }
+.tm { position: absolute; box-sizing: border-box; border: 2px solid #0a0a0a; border-radius: 6px; overflow: hidden; padding: 6px 8px;
+  cursor: pointer; transition: filter .15s; color: #1a0d00; }
+.tm:hover { filter: brightness(1.15); }
+.tm b { display: block; font: 600 12.5px var(--px); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.tm small { font: 11px var(--mono); opacity: .8; }
+.tm.leaf { cursor: default; }
+.types { display: flex; flex-direction: column; gap: 5px; }
+.type-row { display: grid; grid-template-columns: 70px 1fr 130px; gap: 10px; align-items: center; font: 12px var(--mono); }
+.type-row .bar { height: 8px; border-radius: 4px; background: var(--orange); }
+.type-row span:last-child { color: var(--muted); text-align: right; }
+
+/* ---------- MIFARE keys + NFC compare ---------- */
+.key-list { display: flex; flex-wrap: wrap; gap: 6px; max-height: 220px; overflow: auto; }
+.key { display: inline-flex; align-items: center; gap: 6px; font: 12.5px var(--mono); background: var(--panel-2); border: 1px solid var(--line-2);
+  border-radius: 6px; padding: 3px 4px 3px 8px; }
+.key button { background: none; border: 0; color: var(--muted); cursor: pointer; font-size: 14px; line-height: 1; padding: 0 3px; }
+.key button:hover { color: var(--err); }
+.nfc-diff { font: 12px/1.5 var(--mono); border: 1px solid var(--line); border-radius: 8px; max-height: 380px; overflow: auto; }
+.nfc-diff .dr { display: grid; grid-template-columns: 90px 1fr 1fr; gap: 10px; padding: 2px 10px; }
+.nfc-diff .dr.head { position: sticky; top: 0; background: var(--panel); color: var(--muted); font-family: var(--px); }
+.nfc-diff .dr.ch { background: #2a1d0c; }
+.nfc-diff .dr.ch span:nth-child(n+2) { color: var(--orange-2); }
+.nfc-diff .x { color: var(--err); font-weight: 700; }
+
+#frameBtn.on { border-color: var(--orange); color: var(--orange); background: #2b1a0a; }
+
+/* ---------- dev kit ---------- */
+.dk-t { display: grid; grid-template-columns: auto 1fr; gap: 10px; align-items: center; padding: 8px 10px; background: var(--panel-2);
+  border: 1px solid var(--line); border-radius: 10px; cursor: pointer; text-align: left; color: var(--text); }
+.dk-t.on { border-color: var(--orange); background: #2b1a0a; }
+.dk-t b { font: 600 13px var(--px); } .dk-t small { color: var(--muted); font-size: 12px; }
+.dk-t .box { width: 14px; height: 14px; border-radius: 50%; border: 2px solid var(--line-2); }
+.dk-t.on .box { border-color: var(--orange); background: var(--orange); }
+.cli-log-bar { margin-bottom: 2px; }
+.cli-log-bar input { flex: 1; min-width: 140px; background: #0a0a0a; color: var(--text); border: 1px solid var(--line); border-radius: 8px; padding: 6px 10px; font: 12.5px var(--mono); outline: 0; }
+.cli-log-bar select { background: var(--panel-2); color: var(--text); border: 1px solid var(--line-2); border-radius: 7px; padding: 5px 7px; font: 12.5px var(--px); }
+.cli-out .lvl-e { color: var(--err); } .cli-out .lvl-w { color: #ffd166; } .cli-out .lvl-d { color: #9a948d; }
+
+.remote-box { display: flex; gap: 16px; align-items: center; }
+.remote-box img { width: 150px; height: 150px; image-rendering: pixelated; border-radius: 8px; background: #fff; padding: 4px; }
+.remote-box code { font: 12.5px var(--mono); color: var(--orange-2); word-break: break-all; }
+
+#bdBody.drop { outline: 2px dashed var(--orange); outline-offset: 4px; border-radius: 8px; }

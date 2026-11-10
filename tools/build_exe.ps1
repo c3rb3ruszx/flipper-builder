@@ -25,6 +25,15 @@ Copy-Item "$root\assets\icon.png" "$root\ui\icon.png" -Force
     --hidden-import anim `
     --hidden-import assetpacks `
     --hidden-import sync `
+    --hidden-import devkit `
+    --hidden-import remote `
+    --hidden-import devboard `
+    --hidden-import ble `
+    --hidden-import qrcode `
+    --collect-all esptool `
+    --collect-all bleak `
+    --collect-all winrt `
+    --collect-submodules qrcode `
     --hidden-import PIL.ImageSequence `
     --hidden-import PIL.Image `
     --hidden-import PIL.GifImagePlugin `

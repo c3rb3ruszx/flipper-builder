@@ -55,10 +55,14 @@ repo, solders while it compiles, DJs when it's done and cries when the build bre
   update any of them, from your Library or straight from Flipper's catalog when it has a newer version.
 - **Clean up**: finds the same app in two folders, apps that won't open on your firmware, old
   firmware update packages and leftover temp files. You tick what goes; nothing is deleted on its own.
+- **SD card map**: a map of what fills the SD card, folder by folder (click to look inside, or open it
+  in Files), plus space by file type.
 - **Screen mirror + remote**: the app's LCD shows your Flipper's real screen, live. The d-pad and
   your keyboard (arrows, Enter, Backspace) press the real buttons, holding one does a long press,
   and one click saves a screenshot. Click the screen to go full screen, like qFlipper (Esc, F11 or
-  another click to leave), and record it as a GIF (up to 60 s) to share.
+  another click to leave), and record it as a GIF (up to 60 s) to share. Screenshots and GIFs can
+  come inside a drawn Flipper (the frame button).
+- **More than one Flipper**: with several plugged in, click the Flipper button in the header to pick one.
 - **CLI**: your Flipper's own command line in a terminal tab. Type any command (`help`, `neofetch`,
   `storage info /ext`, `log`...) and the output streams back; Up/Down recall earlier commands, Stop
   or Ctrl+C ends commands that keep running. Commands that delete things, change settings or
@@ -66,7 +70,8 @@ repo, solders while it compiles, DJs when it's done and cries when the build bre
 - **Files**: browse the whole SD card; upload, download, rename, make folders and delete.
 - **Capture viewer**: click a `.sub`, `.ir`, `.nfc`, `.rfid` or `.ibtn` file to see it in plain
   language: Sub-GHz frequency, modulation and the signal itself, every button of an IR remote (with
-  *Send* to fire one from the Flipper), an NFC card's type, UID and blocks.
+  *Send* to fire one from the Flipper), an NFC card's type, UID and blocks. Two NFC dumps can be
+  compared byte by byte.
 - **IR remote editing**: rename, reorder and remove the buttons of a remote, or add all the buttons of
   another remote to it.
 - **Script editor**: write and edit BadUSB scripts and JavaScript apps with syntax highlighting,
@@ -100,6 +105,18 @@ repo, solders while it compiles, DJs when it's done and cries when the build bre
   `.workbench-trash` folder, never straight away).
 - **Companion app**: builds and installs *Workbench* to your Flipper's Apps > Tools: open it there to
   see when Workbench last connected, backed up and synced.
+- **New app**: start your own Flipper app from a template (hello screen, menu app, LED blinker or a
+  JavaScript app). One click builds it, installs it and rebuilds on every save; *CLI > Follow log*
+  shows just your app's log lines while you test (it pauses for a moment whenever Workbench uses USB
+  for something else, like installing a rebuild).
+- **MIFARE keys**: manage your own MIFARE Classic keys (`mf_classic_dict_user.nfc`), which the
+  Flipper tries on top of its built-in list.
+- **Wi-Fi dev board**: flash the official Black Magic debugger firmware onto the ESP32-S2 Wi-Fi board,
+  or drop in any compatible firmware file (.bin, or a .zip/.tgz package). Every part is checked to be
+  an ESP32-S2 image before anything is written.
+- **Phone remote**: your Flipper's screen and buttons on your phone over home Wi-Fi: scan the code,
+  no app needed. Off until you switch it on, home network only, secret link, stops when Workbench closes.
+- **Bluetooth** (experimental): mirror and control your Flipper without a cable.
 
 ### Little things
 

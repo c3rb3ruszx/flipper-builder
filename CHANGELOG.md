@@ -2,6 +2,22 @@
 
 Downloads for every version are on the [Releases](../../releases) page.
 
+## 1.9.0
+
+- **App dev kit**: Tools > New app creates a project from a template (hello screen, menu app, LED
+  blinker, JavaScript app); one click builds, installs and watches it. CLI > Follow log streams the
+  Flipper's log filtered to your app, coloured by level.
+- **SD card map**: treemap of the SD card by folder, drill-down, open in Files, space by file type.
+- **NFC**: compare two dumps byte by byte; manage your own MIFARE Classic keys.
+- **Framed screenshots and GIFs**: optionally inside a drawn Flipper.
+- **Wi-Fi dev board flasher**: official Black Magic firmware (checksum-verified from Flipper's
+  server) or any compatible file you drop in; every part is checked to be an ESP32-S2 image first.
+- **Phone remote**: screen + d-pad on your phone over home Wi-Fi (off by default, private network
+  only, secret link, QR code).
+- **Several Flippers**: pick which one to use from the header.
+- **Bluetooth** (experimental): mirror over BLE.
+- `tools/release.ps1`: version bump, build, zip, Scoop manifest, privacy check, release in one go.
+
 ## 1.8.0
 
 - **Updates itself**: one click downloads the new release, checks it against GitHub's SHA-256 and
