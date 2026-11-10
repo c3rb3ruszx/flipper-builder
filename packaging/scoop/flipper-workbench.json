@@ -6,7 +6,7 @@
   "architecture": {
     "64bit": {
       "url": "https://github.com/c3rb3ruszx/flipper-workbench/releases/download/v1.9.0/FlipperWorkbench-win64.zip",
-      "hash": "a18b81c9a5d112430d0da747e95a6948a25a0ffc45b5f33bc33d686a3493dd52"
+      "hash": "e9818e2a03604bd71964b4c4af7007244746798e11535fb483dafafcd2f6b782"
     }
   },
   "extract_dir": "FlipperWorkbench",
