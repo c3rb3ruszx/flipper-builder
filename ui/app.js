@@ -360,7 +360,7 @@ function mockApi() {
     irb_learn: async (on) => { if (on) { later(900, [{ type: "irlearn", signal: { name: "", type: "parsed", protocol: "NEC", address: "04 00 00 00", command: "08 00 00 00" } }]); } else later(100, [{ type: "irlearn", done: "stopped" }]); return { ok: true }; },
     ir_files: async () => ({ files: ["/ext/infrared/TV.ir", "/ext/infrared/Soundbar.ir"] }),
     health_snapshot: async () => ({ heap: { free: 98000 + Math.round(Math.random() * 20000), total: 189648, min: 25232, block: 73600 }, power: { level: 87, state: "discharging", health: "100", temp: "27" }, sd: { total_kib: 7737344, free_kib: 5318592, type: "FAT32" }, uptime: "1h4m", app: null }),
-    health_packs: async () => ({ active: "WatchDogs", packs: [{ name: "WatchDogs", path: "/ext/asset_packs/WatchDogs", in_use: true, total: 61000, level: "warn", anims: 9, icons: 12, fonts: 0, heaviest: [{ name: "WD_Hack", mem: 52000 }], uncompressed: 0 }, { name: "Workbench", path: "/ext/asset_packs/Workbench", in_use: false, total: 63000, level: "warn", anims: 1, icons: 0, fonts: 0, heaviest: [{ name: "my_gif", mem: 61500 }], uncompressed: 60 }] }),
+    health_packs: async () => ({ active: "WatchDogs", packs: [{ name: "WatchDogs", path: "/ext/asset_packs/WatchDogs", in_use: true, total: 61000, level: "warn", anims: 9, icons: 12, fonts: 0, heaviest: [{ name: "WD_Hack", mem: 52000 }], uncompressed: 12, shrink: 0, shrink_saves: 0 }, { name: "Workbench", path: "/ext/asset_packs/Workbench", in_use: false, total: 63000, level: "warn", anims: 1, icons: 0, fonts: 0, heaviest: [{ name: "my_gif", mem: 61500 }], uncompressed: 60, shrink: 60, shrink_saves: 52000 }] }),
     health_shrink: async () => { later(600, [{ type: "finished", ok: true, quiet: true, send_only: true, hc_done: { frames: 60, saved: 52000 } }]); return { ok: true }; },
     pm_slots: async () => ({ slots: [["Passport/passport_128x64", 128, 64, false], ["Passport/passport_happy_46x49", 46, 49, false], ["Passport/passport_okay_46x49", 46, 49, false], ["Passport/passport_bad_46x49", 46, 49, false], ["MainMenu/NFC_14", 14, 14, true]].map(([path, w, h, animated]) => ({ path, w, h, animated })), fonts: ["Primary", "Secondary", "Keyboard", "BigNumbers", "BatteryPercent"] }),
     pm_list: async () => ({ packs: MOCKPACKS.map((p) => ({ name: p.name, anims: p.animations.length, icons: p.iconList.length, fonts: 0, size: 18400, memory: p.memory })) }),
@@ -1912,6 +1912,7 @@ async function irbSave(overwrite) {
 /* health check: polls only while its panel is open and visible */
 const HC = { pts: [], timer: 0, busy: false, total: 0 };
 const kb = (b) => (b == null ? "-" : `${Math.round(b / 1024)} KB`);
+const kbSmall = (b) => (b < 1024 ? `${b} bytes` : kb(b));
 function hcOpen() { const t = $('.tool[data-tool="health"]'); return !!t && t.open && S.tab === "flipper" && FM.sub === "tools" && !document.hidden; }
 function hcDraw() {
   const cv = $("#hcGraph"), ctx = cv.getContext("2d"), w = cv.width, h = cv.height, pts = HC.pts;
@@ -1970,12 +1971,12 @@ async function hcScan() {
     const row = document.createElement("div"); row.className = "vw-btn hc-pack " + p.level;
     const heavy = p.heaviest.length ? `heaviest: ${p.heaviest.map((a) => `${esc(a.name)} ${kb(a.mem)}`).join(", ")}` : "no animations";
     row.innerHTML = `<b>${esc(p.name)}${p.in_use ? ` <em class="tag-use">In use</em>` : ""}</b><span>${kb(p.total)} · ${p.anims} anim${p.anims === 1 ? "" : "s"}${p.icons ? ` · ${p.icons} icons` : ""} · ${heavy}</span>`;
-    if (p.uncompressed) {
+    if (p.shrink) {
       const b = document.createElement("button"); b.className = "mini" + (p.in_use ? "" : " primary");
-      b.textContent = `Shrink ${p.uncompressed} frame${p.uncompressed === 1 ? "" : "s"}`;
+      b.textContent = `Shrink ${p.shrink} frame${p.shrink === 1 ? "" : "s"} (${kbSmall(p.shrink_saves)} less)`;
       b.title = p.in_use ? "Pick another pack on your Flipper first: this one is in use" : "Compress its uncompressed frames, the way Flipper's own packer does. They look exactly the same.";
       b.onclick = async () => {
-        if (!(await confirmDialog(`Shrink ${esc(p.name)}?`, `${p.uncompressed} animation frames are stored uncompressed. Workbench compresses them in place on the SD card. They look exactly the same and take less memory while they play.`, "Shrink"))) return;
+        if (!(await confirmDialog(`Shrink ${esc(p.name)}?`, `${p.shrink} animation frames are stored uncompressed and compress to ${kbSmall(p.shrink_saves)} less. Workbench compresses them in place on the SD card. They look exactly the same and take less memory while they play.`, "Shrink"))) return;
         startJob("files", () => api.health_shrink(p.path));
       };
       row.appendChild(b);
@@ -3174,7 +3175,7 @@ function finished(e) {
     }, 1500);
   }
   if (e.restored) toast(`Restored ${e.restored.files} files`);
-  if (e.hc_done) { toast(`Shrank ${e.hc_done.frames} frames, ${Math.round(e.hc_done.saved / 1024)} KB smaller`); hcScan(); }
+  if (e.hc_done) { toast(e.hc_done.frames ? `Shrank ${e.hc_done.frames} frames, ${kbSmall(e.hc_done.saved)} smaller` : "Nothing to shrink: those frames are already as small as they get."); hcScan(); }
   if (e.pm_done) { toast("Pack installed"); $("#pmNote").innerHTML = `Installed. On your Flipper, pick it in <b>Momentum Settings &gt; Interface &gt; Graphics &gt; Asset pack</b>. Your Flipper restarts when you back out.`; }
   if (e.saved) toast("Saved. Opening the folder"), api.open_folder(e.saved);
   if (!e.ok && !e.cancelled && S.tab !== "build" && e.error) toast(e.error);

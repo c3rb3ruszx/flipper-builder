@@ -2,7 +2,8 @@
 
 The firmware keeps every frame of the playing animation in RAM at its file size, and every icon and
 font of the selected asset pack from boot on. A frame file of exactly ceil(w/8)*h + 1 bytes is stored
-uncompressed (a compressed one is always smaller), which is what old tools and early Workbench wrote.
+uncompressed, which is what old tools and early Workbench wrote, but also what Flipper's own packer writes
+when compressing a detailed picture wouldn't make it smaller. So only `shrink_gain` decides whether one can shrink.
 """
 
 import re
@@ -59,6 +60,14 @@ def _meta(text):
 
 def raw_size(w, h):
     return (w + 7) // 8 * h + 1
+
+
+def shrink_gain(data, w, h):
+    """Bytes saved by compressing this uncompressed frame file (0 if it is compressed or wouldn't get smaller)."""
+    import anim
+    if data[:1] != b"\x00" or len(data) != raw_size(w, h):
+        return 0
+    return max(0, len(data) - len(anim.compress_raw(data[1:])))
 
 
 def pack_report(name, root, files, metas):

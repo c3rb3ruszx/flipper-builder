@@ -2,6 +2,12 @@
 
 Downloads for every version are on the [Releases](../../releases) page.
 
+## 1.13.1
+
+- **Health check**: *Shrink* is only offered for frames that really get smaller. Detailed pictures don't
+  compress, so Flipper's own packer stores them uncompressed on purpose; 1.13.0 counted those too and offered
+  a shrink that saved nothing. The button now shows how much it will save.
+
 ## 1.13.0
 
 - **Health check** (On Flipper > Tools): free memory with a live graph, the lowest it dropped since the

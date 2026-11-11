@@ -1589,13 +1589,19 @@ class Api:
                     roots += [(n, f"/ext/asset_packs/{n}") for k, n, _ in device._list(st, "/ext/asset_packs") if k == "D"]
                 if st.exist_dir("/ext/dolphin"):
                     roots.append(("Default (dolphin folder)", "/ext/dolphin"))
-                return [health.pack_report(name, root, *self._health_scan(st, root)) for name, root in roots]
-            packs = device.storage_call(port, fb.sdk_dirs(), fn, seconds=180)
+                packs = [health.pack_report(name, root, *self._health_scan(st, root)) for name, root in roots]
+                for p in packs:
+                    # test-compress each uncompressed frame: detailed pictures don't get smaller, the packer keeps those raw
+                    gains = [health.shrink_gain(bytes(st.read_file(f)), w, h) for f, w, h in p["uncompressed"]]
+                    p["uncompressed"] = len(gains)
+                    p["shrink"] = sum(1 for g in gains if g)
+                    p["shrink_saves"] = sum(gains)
+                return packs
+            packs = device.storage_call(port, fb.sdk_dirs(), fn, seconds=240)
         except (fb.BuildError, device.DeviceError) as e:
             return {"error": str(e)}
         for p in packs:
             p["in_use"] = p["path"] == "/ext/dolphin" if not active else p["path"].lower() == f"/ext/asset_packs/{active}".lower()
-            p["uncompressed"] = len(p["uncompressed"])
         return {"packs": packs, "active": active}
 
     def health_shrink(self, root):
