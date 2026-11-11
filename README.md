@@ -3,6 +3,7 @@
 [![Latest release](https://img.shields.io/github/v/release/c3rb3ruszx/flipper-workbench?color=ff8200&label=release)](../../releases/latest)
 [![Platform](https://img.shields.io/badge/platform-Windows%2010%20%7C%2011-ff8200)](../../releases/latest)
 [![License](https://img.shields.io/github/license/c3rb3ruszx/flipper-workbench?color=ff8200)](LICENSE)
+[![Videos](https://img.shields.io/badge/videos-watch%20the%20series-ff8200?logo=youtube&logoColor=white)](https://www.youtube.com/playlist?list=PLBpDgOq-m2-4)
 
 **Build, install and manage your Flipper Zero's apps from your PC.**
 
@@ -17,7 +18,17 @@ repo, solders while it compiles, DJs when it's done and cries when the build bre
 
 *Called Flipper Builder up to version 1.5.0.*
 
-**[Download the latest release](../../releases/latest)** · [User guide](docs/GUIDE.md) · [What's new](CHANGELOG.md)
+**[Download the latest release](../../releases/latest)** · [User guide](docs/GUIDE.md) · [Videos](#watch-it-in-action) · [What's new](CHANGELOG.md)
+
+## Watch it in action
+
+Five short episodes, under a minute each, with captions. [The whole series on YouTube](https://www.youtube.com/playlist?list=PLBpDgOq-m2-4), or on
+[TikTok](https://www.tiktok.com/@c3rb3rus.x).
+
+<table>
+<tr><td width="33%" align="center"><a href="https://youtu.be/YZcUVTbdxbo"><img src="assets/videos/ep1-getting-started.jpg" alt="Episode 1: Getting started" width="100%"></a><br><b>1 · Getting started</b> <sub>0:45</sub></td><td width="33%" align="center"><a href="https://youtu.be/HITNJEL-0N0"><img src="assets/videos/ep2-make-an-animation.jpg" alt="Episode 2: Make an animation" width="100%"></a><br><b>2 · Make an animation</b> <sub>0:45</sub></td><td width="33%" align="center"><a href="https://youtu.be/GqTvIiVzsx8"><img src="assets/videos/ep3-health-check.jpg" alt="Episode 3: Health check" width="100%"></a><br><b>3 · Health check</b> <sub>0:37</sub></td></tr>
+<tr><td width="33%" align="center"><a href="https://youtu.be/xqjeJSdMtS0"><img src="assets/videos/ep4-make-things.jpg" alt="Episode 4: IR, NFC and BadUSB" width="100%"></a><br><b>4 · IR, NFC and BadUSB</b> <sub>0:39</sub></td><td width="33%" align="center"><a href="https://youtu.be/LINAiJ5cQFE"><img src="assets/videos/ep5-keep-it-safe.jpg" alt="Episode 5: Keep it safe" width="100%"></a><br><b>5 · Keep it safe</b> <sub>0:41</sub></td><td></td></tr>
+</table>
 
 ## Quick start
 

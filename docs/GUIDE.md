@@ -1,5 +1,7 @@
 # Flipper Workbench user guide
 
+*Prefer watching? [Five short videos](https://www.youtube.com/playlist?list=PLBpDgOq-m2-4) cover the main features.*
+
 Everything Flipper Workbench does, why it's there, and how to use it, with pictures.
 
 ![Flipper Workbench with a Flipper plugged in: its live screen on the left, the On Flipper tab on the right](images/window-tools.png)
@@ -60,6 +62,8 @@ few features (Passport, Pack maker, Asset packs, Profiles) use Momentum's extra 
 ---
 
 ## 2. Getting started
+
+*Video: [Getting started](https://youtu.be/YZcUVTbdxbo) (0:45)*
 
 ### What you need
 
@@ -223,6 +227,8 @@ CLI.
 
 ### Backups
 
+*Video: [Keep it safe](https://youtu.be/LINAiJ5cQFE) (0:41), also covers Clean up, firmware updates and Profiles*
+
 One click backs up your captures, NFC/RFID dumps, IR remotes, BadUSB scripts and app data to a zip on your
 PC, and **Restore** puts them back later (restoring never deletes anything on the Flipper). With **auto
 backup** on, plugging in your Flipper backs it up once a day; the last 5 automatic backups are kept, and
@@ -295,6 +301,8 @@ When your Flipper is plugged in, the screen on the left shows its real display, 
 
 ### Health check
 
+*Video: [Health check](https://youtu.be/GqTvIiVzsx8) (0:37)*
+
 Is your Flipper running low on memory? Health check shows, live:
 
 - **Free memory**, with a graph of the last few minutes and the biggest free block.
@@ -314,6 +322,8 @@ Flipper is using is never changed: pick another one in Momentum's settings first
 ![Health check: memory, battery, SD card and the memory each asset pack needs](images/tool-health.png)
 
 ### IR remote builder
+
+*Video: [IR, NFC and BadUSB](https://youtu.be/xqjeJSdMtS0) (0:39), also covers the NFC maker and BadUSB scripts*
 
 Make one remote with exactly the buttons you want, from any mix of sources:
 
@@ -410,6 +420,8 @@ go to a `.workbench-trash` folder, never straight away.
 ---
 
 ## 9. Studio: animations and asset packs
+
+*Video: [Make an animation](https://youtu.be/HITNJEL-0N0) (0:45)*
 
 **On Flipper > Studio** is where you change how your Flipper looks, next to its live screen.
 
