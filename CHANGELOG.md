@@ -2,6 +2,12 @@
 
 Downloads for every version are on the [Releases](../../releases) page.
 
+## 1.13.2
+
+- **BadUSB scripts**: the editor's syntax highlighting now shows. It was there all along, hidden under the
+  text box since 1.13.0.
+- New **[user guide](docs/GUIDE.md)**: every feature explained step by step, with screenshots.
+
 ## 1.13.1
 
 - **Health check**: *Shrink* is only offered for frames that really get smaller. Detailed pictures don't
