@@ -1,12 +1,12 @@
 {
-  "version": "1.13.2",
+  "version": "1.13.3",
   "description": "Windows companion for the Flipper Zero: build apps from a GitHub link or the official catalog, install them over USB, update firmware, manage apps, files and backups, mirror the screen and use the Flipper's CLI.",
   "homepage": "https://github.com/c3rb3ruszx/flipper-workbench",
   "license": "GPL-3.0-only",
   "architecture": {
     "64bit": {
-      "url": "https://github.com/c3rb3ruszx/flipper-workbench/releases/download/v1.13.2/FlipperWorkbench-win64.zip",
-      "hash": "97585656d3a91079991d2ca81de8b6630b3a136fa36f4cdf6ab200d08e7b0cf9"
+      "url": "https://github.com/c3rb3ruszx/flipper-workbench/releases/download/v1.13.3/FlipperWorkbench-win64.zip",
+      "hash": "650afc781d3c75e55d6728a4cc7983ed1bd493c2a8d9c7f6246edde9e81dbd6b"
     }
   },
   "extract_dir": "FlipperWorkbench",

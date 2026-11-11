@@ -3546,7 +3546,10 @@ function bind() {
   const MIR_KEYS = { ArrowUp: "up", ArrowDown: "down", ArrowLeft: "left", ArrowRight: "right", Enter: "ok", Backspace: "back", Escape: "back" };
   document.addEventListener("keyup", (e) => { if (MIR.state === "live" && MIR_KEYS[e.key]) { e.preventDefault(); mirrorUp(MIR_KEYS[e.key]); } });
   document.addEventListener("keydown", (e) => {
-    const typing = ["url", "search", "pickSearch", "flSearch", "cfInput", "cliInput"].includes(document.activeElement && document.activeElement.id);
+    // any text field, text area or dropdown keeps its keys (the BadUSB editor, IR names, NFC fields...), not just the old fixed list
+    const ae = document.activeElement;
+    const typing = !!ae && (ae.isContentEditable || ae.tagName === "TEXTAREA" || ae.tagName === "SELECT" ||
+      (ae.tagName === "INPUT" && !/^(checkbox|radio|range|button|submit|reset|color|file)$/i.test(ae.type)));
     if (!$("#viewer").hidden) { if (e.key === "Escape" && $("#confirm").hidden) { e.preventDefault(); closeViewer(); } return; }
     if (CLI.running && e.ctrlKey && e.key.toLowerCase() === "c" && !window.getSelection().toString()) { e.preventDefault(); api.cli_stop(); return; }
     if (e.key === "F11" && MIR.state === "live") { e.preventDefault(); setLcdFull(!document.body.classList.contains("lcd-full")); return; }

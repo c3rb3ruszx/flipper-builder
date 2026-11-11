@@ -2,6 +2,12 @@
 
 Downloads for every version are on the [Releases](../../releases) page.
 
+## 1.13.3
+
+- **Typing in text boxes** works again everywhere: in the BadUSB editor, the IR remote builder, NFC maker, speech
+  bubbles, Music, Passport and Profiles, Enter, the arrow keys and Backspace no longer jump to Build, move the d-pad
+  or press your Flipper's buttons while the screen mirror is on.
+
 ## 1.13.2
 
 - **BadUSB scripts**: the editor's syntax highlighting now shows. It was there all along, hidden under the
