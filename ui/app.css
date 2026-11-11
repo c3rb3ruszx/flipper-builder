@@ -982,9 +982,9 @@ body.mirroring .scr-btn i { color: var(--orange); }
 
 /* BadUSB editor + passport */
 .bu-wrap { position: relative; height: 280px; flex: none; }
-.bu-text { position: absolute; inset: 0; margin: 0; padding: 12px 14px; font: 13px/1.55 var(--mono); tab-size: 4; white-space: pre; overflow: auto;
+.tool .bu-text { position: absolute; inset: 0; margin: 0; padding: 12px 14px; font: 13px/1.55 var(--mono); tab-size: 4; white-space: pre; overflow: auto;
   background: transparent; color: transparent; caret-color: var(--orange); resize: none; outline: 0; border: 0; }
-.bu-text::selection { background: rgba(255,130,0,.3); color: transparent; }
+.tool .bu-text::selection { background: rgba(255,130,0,.3); color: transparent; }
 .bu-wrap .ed-hl { white-space: pre; overflow: hidden; }
 .ed-hl .bu-bad { text-decoration: underline wavy var(--err); text-underline-offset: 3px; }
 .bu-problems { font-size: 12.5px; color: var(--err); display: flex; flex-direction: column; gap: 2px; }
