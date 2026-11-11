@@ -959,30 +959,104 @@ class Api:
 
     # ------------------------------------------------ tools: animation maker
     def anim_pick(self):
-        p = self._pick(("Images and GIFs (*.gif;*.png;*.webp;*.apng;*.jpg;*.jpeg;*.bmp)", "All files (*.*)"))
-        if not p:
-            return {"cancelled": True}
-        if Path(p).stat().st_size > 30 * 1024 * 1024:
-            return {"error": "That file is too big (30 MB max)."}
-        self._anim_src = Path(p)
-        return {"ok": True, "name": Path(p).stem}
+        p = self._pick(("Videos, GIFs and images (*.mp4;*.m4v;*.webm;*.mov;*.mkv;*.avi;*.gif;*.png;*.webp;*.apng;*.jpg;*.jpeg;*.bmp)",
+                        "All files (*.*)"))
+        return self._anim_open(p) if p else {"cancelled": True}
+
+    def _anim_open(self, path):
+        import anim
+        path = Path(path)
+        if path.suffix.lower() not in anim.VIDEO_EXT and path.stat().st_size > 30 * 1024 * 1024:
+            return {"error": "That image is too big (30 MB max)."}
+        try:
+            src = anim.open_source(path)
+        except anim.AnimError as e:
+            return {"error": str(e)}
+        self._anim_src = src
+        return {"ok": True, "name": path.stem, "kind": src.kind, "duration": src.duration, "fps": src.fps,
+                "w": src.size[0], "h": src.size[1]}
+
+    def anim_use_file(self, name, b64):
+        """A file dropped on the window: the page only has its bytes, so give it a temporary home."""
+        import base64
+        safe = re.sub(r"[^\w.\- ]+", "_", Path(name or "drop").name)
+        d = fb.ROOT / ".cache" / "anim_drop"
+        d.mkdir(parents=True, exist_ok=True)
+        for old in d.iterdir():
+            old.unlink(missing_ok=True)
+        p = d / safe
+        p.write_bytes(base64.b64decode(b64 or ""))
+        return self._anim_open(p)
 
     def anim_build(self, opts):
-        """Convert the picked image with these options; returns preview frames (XBM rows, base64)."""
+        """Convert the picked file with these options; returns every frame for the preview (XBM rows, base64)."""
         import base64
         import anim
         src = getattr(self, "_anim_src", None)
         if not src:
-            return {"error": "Pick a GIF or image first."}
+            return {"error": "Pick a video, GIF or image first."}
         try:
-            res = anim.build(src.read_bytes(), opts or {})
+            res = anim.build(src, opts or {})
+        except anim.AnimError as e:
+            return {"error": str(e)}
         except Exception as e:  # noqa: BLE001
-            return {"error": f"Couldn't read that image: {e}"}
+            return {"error": f"Couldn't convert that: {e}"}
+        self._anim_all = res
         self._anim_res = res
         return {"fps": res["fps"], "count": len(res["frames"]), "mem": sum(len(anim.bm_packed(f)) for f in res["frames"]),
+                "used": res["used"], "cut": res["cut"], "flipped": res["flipped"],
                 "frames": [base64.b64encode(anim.bm_bytes(f)[1:]).decode() for f in res["frames"]]}
 
-    def anim_install(self, name, weight=3):
+    def anim_commit(self, frames):
+        """The frames as edited by hand (XBM rows, base64), in their final order."""
+        import base64
+        import anim
+        full = getattr(self, "_anim_all", None)
+        if not full:
+            return {"error": "Make an animation first."}
+        rows = [base64.b64decode(f) for f in frames or []]
+        if not rows:
+            return {"error": "An animation needs at least one frame."}
+        if len(rows) > anim.HARD_MAX_FRAMES:
+            return {"error": f"An animation can have {anim.HARD_MAX_FRAMES} frames at most."}
+        if any(len(r) != anim.W * anim.H // 8 for r in rows):
+            return {"error": "A frame came through damaged. Try again."}
+        imgs = [anim.from_rows(r) for r in rows]
+        self._anim_res = {**full, "frames": imgs}
+        return {"count": len(imgs), "mem": sum(len(anim.bm_packed(f)) for f in imgs)}
+
+    def anim_stream(self, on):
+        """Play the current animation on the Flipper's real screen, or stop."""
+        import anim
+        import device
+        cur = getattr(self, "_lcd", None)
+        if not on:
+            if cur:
+                self._lcd = None
+                cur.stop()
+            return {"ok": True}
+        if cur:
+            return {"ok": True}
+        if not getattr(self, "_anim_res", None):
+            return {"error": "Make an animation first."}
+        if not getattr(self, "_mirror", None):
+            r = self.mirror_start()
+            if r.get("error"):
+                return r
+        if not isinstance(self._mirror, device.Mirror):
+            return {"error": "Showing it on the Flipper needs a USB cable, not Bluetooth."}
+        cache = {"res": None, "rows": []}
+
+        def get():
+            res = self._anim_res
+            if res is not cache["res"]:
+                cache["res"], cache["rows"] = res, [anim.bm_bytes(f)[1:] for f in res["frames"]]
+            return cache["rows"], res["fps"]
+        self._lcd = device.LcdPlayer(self._mirror, get, lambda state: self._emit("lcdstream", state=state))
+        self._lcd.start()
+        return {"ok": True}
+
+    def anim_install(self, name, weight=3, target=""):
         """Momentum: into the 'Workbench' asset pack (pick it on the Flipper). Other firmware: /ext/dolphin
         plus an entry in its manifest (the original manifest is kept as manifest.txt.bak the first time)."""
         import tempfile
@@ -993,6 +1067,9 @@ class Api:
             return {"error": "Make an animation first."}
         name = anim.safe_name(name)
         momentum = (self._device.get("fw") or "").startswith("momentum")
+        if target == "pack" and not momentum:
+            return {"error": "Asset packs need Momentum firmware. Choose the dolphin folder instead."}
+        momentum = momentum and target != "manifest"
         base = "/ext/asset_packs/Workbench/Anims" if momentum else "/ext/dolphin"
         try:
             port = self._port()

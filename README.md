@@ -99,9 +99,11 @@ repo, solders while it compiles, DJs when it's done and cries when the build bre
 
 - **Music**: turn a MIDI file or an RTTTL ringtone into a song for the Flipper's Music Player. Hear it
   in the app first (square wave, like the Flipper's buzzer), then save it to the SD card.
-- **Animation maker**: turn a GIF or picture into a desktop animation for your Flipper: dithered to
-  128x64 with live preview, brightness and contrast, in Flipper's own animation format. On Momentum
-  it goes into a *Workbench* asset pack; on other firmware into `dolphin/`. Remove it with one click.
+- **Studio**: one editor for your Flipper's look, next to its live screen. Turn a **video, GIF or picture**
+  into a desktop animation: trim it, set the frame rate (up to 30 fps), max frames, threshold, contrast,
+  dither, fit, zoom and framing, invert and background. Then edit it frame by frame: draw and erase pixels,
+  duplicate, reorder or remove frames, with undo. Play it live on your real Flipper before installing, and
+  send it to an asset pack or the dolphin folder.
 - **NFC maker**: make an NFC tag from scratch. Pick what a phone should do when it taps your Flipper
   (open a link, join Wi-Fi, save a contact, call, text, email, show a place on the map, open an
   Android app, pair Bluetooth, or show some text), fill in the blanks and Workbench writes a ready
@@ -183,7 +185,7 @@ Needs Windows and Python 3.10+. Double-click `Flipper Workbench.bat`, or:
 
 ```
 python -m venv .venv
-.venv\Scripts\pip install ufbt pywebview pyserial pillow heatshrink2
+.venv\Scripts\pip install ufbt pywebview pyserial pillow heatshrink2 imageio-ffmpeg
 .venv\Scripts\python flipper_workbench.py                                                    # GUI
 .venv\Scripts\python flipper_workbench.py <github-url-or-folder> --fw momentum-dev [--send]  # CLI
 ```
@@ -214,7 +216,7 @@ To build one on a Mac:
 
 ```
 python3 -m venv .venv
-.venv/bin/pip install ufbt pywebview pyserial pyinstaller pillow heatshrink2
+.venv/bin/pip install ufbt pywebview pyserial pyinstaller pillow heatshrink2 imageio-ffmpeg
 bash tools/build_mac.sh            # -> dist/Flipper Workbench.app
 ```
 
@@ -245,6 +247,8 @@ caches it for a week.
   (license texts in `ui/vendor/fonts/`).
 - **ufbt** and the **storage client** (`flipper_storage.py`) by Flipper Devices, GPL-3.0.
 - **App catalog index**: Flipper's official Apps Catalog; each app belongs to its author.
+- **Video conversion**: [FFmpeg](https://ffmpeg.org), GPL, shipped through
+  [imageio-ffmpeg](https://github.com/imageio/imageio-ffmpeg).
 
 Flipper Workbench is an unofficial community tool and is not affiliated with or endorsed by Flipper Devices Inc.
 "Flipper Zero" is a trademark of Flipper Devices Inc.

@@ -3,7 +3,7 @@
 # UNTESTED: written on Windows, run it on a Mac and report back. Needs Python 3.10+ (python.org or Homebrew).
 #
 #   python3 -m venv .venv
-#   .venv/bin/pip install ufbt pywebview pyserial pyinstaller pillow heatshrink2
+#   .venv/bin/pip install ufbt pywebview pyserial pyinstaller pillow heatshrink2 imageio-ffmpeg
 #   bash tools/build_mac.sh
 #
 # Data (SDKs, built apps, library, settings, backups) goes to ~/Library/Application Support/Flipper Workbench.

@@ -2,6 +2,20 @@
 
 Downloads for every version are on the [Releases](../../releases) page.
 
+## 1.12.0
+
+- **Studio**: a new tab under On Flipper with everything for your Flipper's look in one place: Animation
+  maker, Pack maker and the pack library, next to your live Flipper screen.
+- **Video in**: the Animation maker now takes MP4, WebM, MOV, MKV and AVI as well as GIFs and pictures.
+  Pick or drop a file, then trim it with Start and End.
+- **More control**: frame rate up to 30 fps, max frames up to 255, threshold, contrast, dither, Fill, Fit or
+  Stretch, zoom and move for framing, invert, and a Background option (Auto flips dark footage so its
+  background comes out empty, with no speckles).
+- **Frame editor**: a strip of every frame with play, pause and step. Draw and erase pixels, duplicate,
+  reorder or remove frames, with undo. Drawings stay when you change the look.
+- **Show on my Flipper**: play the animation live on your Flipper's real screen before installing it.
+- Choose where an animation goes: an asset pack or the dolphin folder.
+
 ## 1.11.0
 
 - **Pack maker** (On Flipper > Tools): make your own Momentum asset pack. Add desktop animations from

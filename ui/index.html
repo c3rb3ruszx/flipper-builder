@@ -175,6 +175,7 @@
           <button data-sub="backups">Backups</button>
           <button data-sub="cli">CLI</button>
           <button data-sub="tools">Tools</button>
+          <button data-sub="studio">Studio</button>
         </div>
         <div class="fl-progress" id="flProg" hidden><span class="blk"></span><span id="flProgText"></span><button class="mini" id="flStop">Stop</button></div>
 
@@ -265,34 +266,125 @@
                 <div class="vw-note">Phones read the tag when they touch the back of your Flipper while it emulates. iPhones open links and contacts; Wi-Fi tags join networks on Android.</div>
               </div>
             </details>
-            <details class="tool" data-tool="anim">
-              <summary><b>Animation maker</b><span>Turn a GIF or picture into a desktop animation</span></summary>
+            <details class="tool" data-tool="sync">
+              <summary><b>Folder sync</b><span>Keep a PC folder and an SD card folder in step</span></summary>
               <div class="tool-body">
-                <div class="tool-row"><button class="mini" id="anPick"><i data-icon="folder"></i>Pick a GIF or image</button><span class="tool-status" id="anStatus"></span></div>
+                <div class="vw-btns" id="syPairs"></div>
+                <div class="tool-row"><button class="mini" id="syAdd"><i data-icon="folder"></i>Add a folder pair</button></div>
+                <div id="syPlan"></div>
+              </div>
+            </details>
+            <details class="tool" data-tool="mfkeys">
+              <summary><b>MIFARE keys</b><span>Your own keys the Flipper tries when reading MIFARE Classic cards</span></summary>
+              <div class="tool-body">
+                <div class="vw-note">Keys you add here go to <code>nfc/assets/mf_classic_dict_user.nfc</code>; the Flipper tries them on top of its built-in list. One key is 12 hex characters, e.g. <code>A0A1A2A3A4A5</code>.</div>
+                <textarea id="mkAdd" spellcheck="false" placeholder="Paste one or more keys (any separators)"></textarea>
+                <div class="tool-row"><button class="mini" id="mkAddBtn">Add</button><button class="mini" id="mkLoad">Reload from Flipper</button><span class="tool-status" id="mkStatus"></span><button class="mini primary" id="mkSave">Save to Flipper</button></div>
+                <div class="key-list" id="mkList"></div>
+              </div>
+            </details>
+            <details class="tool" data-tool="board">
+              <summary><b>Wi-Fi dev board</b><span>Flash the ESP32-S2 Wi-Fi board: official firmware or your own file</span></summary>
+              <div class="tool-body" id="bdBody">
+                <div class="vw-note"><b>1.</b> Unplug the board from the Flipper. <b>2.</b> Hold its <b>BOOT</b> button while plugging its own USB port into this PC, then let go. <b>3.</b> Pick a firmware and flash. Only ESP32-S2 firmware is accepted, and each part is checked before anything is written.</div>
+                <div class="tool-row"><select id="bdOfficial"></select><button class="mini" id="bdUseOfficial">Use this</button><span class="tool-or">or</span>
+                  <button class="mini" id="bdPick"><i data-icon="folder"></i>Choose a file</button><span class="tool-or">(or drop a .bin / .zip / .tgz here)</span></div>
+                <div class="vw-note" id="bdPlan"></div>
+                <div class="tool-row"><select id="bdPort"></select><button class="mini" id="bdLook">Look for the board</button><button class="mini primary" id="bdFlash" disabled>Flash</button></div>
+              </div>
+            </details>
+            <details class="tool" data-tool="ble">
+              <summary><b>Bluetooth</b><span>Experimental: mirror and control your Flipper without a cable</span></summary>
+              <div class="tool-body">
+                <div class="vw-note">Turn Bluetooth on (on the Flipper and on this PC), then scan. The first time, your Flipper shows a PIN and Windows asks for it. While mirroring over Bluetooth, the screen, buttons, screenshots and GIFs work; files and builds still use USB.</div>
+                <div class="tool-row"><button class="mini" id="btScan">Scan</button><span class="tool-status" id="btStatus"></span></div>
+                <div class="vw-btns" id="btList"></div>
+              </div>
+            </details>
+            <details class="tool" data-tool="remote">
+              <summary><b>Phone remote</b><span>Your Flipper's screen and buttons on your phone, over your home Wi-Fi</span></summary>
+              <div class="tool-body">
+                <div class="vw-note">Open the link (or scan the code) on a phone on the same Wi-Fi. It only works on your home network, only with this link's secret code, and stops when you switch it off or close Workbench. Windows may ask once whether to allow Workbench on private networks: allow it for this to work.</div>
+                <div class="tool-row"><button class="mini primary" id="rmToggle">Turn on</button><span class="tool-status" id="rmStatus">Off</span></div>
+                <div class="remote-box" id="rmBox" hidden><img id="rmQr" alt=""><div><code id="rmUrl"></code><br><button class="mini" id="rmCopy">Copy link</button></div></div>
+              </div>
+            </details>
+            <details class="tool" data-tool="companion">
+              <summary><b>Companion app</b><span>A small app on your Flipper that shows what Workbench did</span></summary>
+              <div class="tool-body">
+                <div class="vw-note">Builds the Workbench companion for your Flipper's firmware and installs it to Apps &gt; Tools. Open it on the Flipper to see when you were last connected, backed up and synced.</div>
+                <div class="tool-row"><button class="mini primary" id="coInstall"><i data-icon="download"></i>Build &amp; install</button></div>
+              </div>
+            </details>
+          </div>
+        </div>
+
+        <div class="sub-pane" id="subStudio" hidden>
+          <div class="tools" id="studioBody">
+            <details class="tool" open data-tool="anim">
+              <summary><b>Animation maker</b><span>Turn a video, GIF or picture into a desktop animation</span></summary>
+              <div class="tool-body">
+                <div class="an-drop" id="anDrop">
+                  <button class="mini primary" id="anPick"><i data-icon="folder"></i>Pick a video, GIF or image</button>
+                  <span class="tool-or">or drop one here. MP4, WebM, MOV, GIF, PNG, JPG</span>
+                </div>
+                <div class="tool-status" id="anStatus"></div>
                 <div class="anim-wrap" id="anWrap" hidden>
-                  <div class="anim-lcd"><canvas id="anCanvas" width="128" height="64"></canvas></div>
-                  <div class="anim-opts">
-                    <label>Fit <select id="anFit"><option value="contain">Whole picture</option><option value="cover">Fill the screen</option></select></label>
-                    <label>Dither <select id="anDither"><option value="floyd">Smooth (Floyd-Steinberg)</option><option value="bayer">Pattern (Bayer)</option><option value="threshold">None (black and white)</option></select></label>
-                    <label>Brightness <input type="range" id="anThr" min="40" max="220" value="128"></label>
-                    <label>Contrast <input type="range" id="anCon" min="5" max="25" value="10"></label>
-                    <label>Speed <select id="anFps"><option value="">From the GIF</option><option>1</option><option>2</option><option>4</option><option>6</option><option>8</option><option>10</option></select></label>
-                    <label class="chk"><input type="checkbox" id="anInv"> Invert</label>
+                  <div class="an-view">
+                    <div class="anim-lcd"><canvas id="anCanvas" width="128" height="64"></canvas></div>
+                    <div class="tool-row an-transport">
+                      <button class="mini" id="anPrev" title="Previous frame">&#9664;</button>
+                      <button class="mini" id="anPlay">Pause</button>
+                      <button class="mini" id="anNext" title="Next frame">&#9654;</button>
+                      <span class="tool-status" id="anPos"></span>
+                    </div>
+                    <button class="mini" id="anStream" title="Play it live on your Flipper's real screen, before you install anything">Show on my Flipper</button>
                   </div>
+                  <div class="anim-opts">
+                    <label>Frame rate <span class="an-val"><input type="range" id="anFps" min="0" max="30" value="0"><output id="anFpsV">Auto</output></span></label>
+                    <label>Max frames <input type="number" id="anMax" min="1" max="255" value="60"></label>
+                    <label>Threshold <span class="an-val"><input type="range" id="anThr" min="20" max="235" value="128"><output id="anThrV">128</output></span></label>
+                    <label>Contrast <span class="an-val"><input type="range" id="anCon" min="5" max="25" value="10"><output id="anConV">1.0</output></span></label>
+                    <label>Dither <select id="anDither"><option value="floyd">Smooth (Floyd)</option><option value="bayer">Pattern (Bayer)</option><option value="threshold">None</option></select></label>
+                    <label>Fit <select id="anFit"><option value="cover">Fill the screen</option><option value="contain">Whole picture</option><option value="stretch">Stretch</option></select></label>
+                    <label>Background <select id="anBg"><option value="auto">Auto</option><option value="white">White</option><option value="black">Black</option><option value="">Leave as is</option></select></label>
+                    <label class="chk"><input type="checkbox" id="anInv"> Invert</label>
+                    <label>Zoom <span class="an-val"><input type="range" id="anZoom" min="100" max="400" step="5" value="100"><output id="anZoomV">100%</output></span></label>
+                    <label>Move sideways <span class="an-val"><input type="range" id="anMx" min="-100" max="100" value="0"><output id="anMxV">0</output></span></label>
+                    <label>Move up/down <span class="an-val"><input type="range" id="anMy" min="-100" max="100" value="0"><output id="anMyV">0</output></span></label>
+                    <div class="vw-note an-hint">Auto flips dark footage so its background comes out empty, with no speckles.</div>
+                  </div>
+                </div>
+                <div class="an-trim" id="anTrim" hidden>
+                  <label>Start <input type="range" id="anStart" min="0" max="1" step="0.05" value="0"></label>
+                  <label>End <input type="range" id="anEnd" min="0" max="1" step="0.05" value="1"></label>
+                  <span class="tool-status" id="anTrimV"></span>
+                </div>
+                <div id="anStripWrap" hidden>
+                  <div class="tool-row an-edit">
+                    <span class="vw-sec" id="anStripTitle">Frames</span>
+                    <span class="pm-spacer"></span>
+                    <button class="fchip" id="anPen" title="Draw on the picture above">Pen</button>
+                    <button class="fchip" id="anEraser" title="Erase on the picture above">Eraser</button>
+                    <button class="mini" id="anUndo">Undo</button>
+                    <button class="mini" id="anClear" title="Remove what you drew on this frame">Clear drawing</button>
+                    <button class="mini" id="anLeft" title="Move this frame earlier">Move left</button>
+                    <button class="mini" id="anRight" title="Move this frame later">Move right</button>
+                    <button class="mini" id="anDup">Duplicate</button>
+                    <button class="mini" id="anToggleFrame">Remove this frame</button>
+                  </div>
+                  <div class="an-strip" id="anStrip"></div>
                 </div>
                 <div class="tool-row" id="anSaveRow" hidden>
                   <input id="anName" type="text" maxlength="40" spellcheck="false">
                   <label>How often <select id="anWeight"><option value="1">Rarely</option><option value="3" selected>Normal</option><option value="8">Often</option><option value="20">Mostly this</option></select></label>
+                  <label>Goes to <select id="anTarget"><option value="">Best for my firmware</option><option value="pack">Asset pack</option><option value="manifest">Dolphin folder</option></select></label>
                   <button class="mini" id="anAddPack" hidden></button>
                   <button class="mini primary" id="anInstall">Install to Flipper</button>
                 </div>
                 <div class="vw-note" id="anNote"></div>
                 <div class="vw-btns" id="anMade"></div>
               </div>
-            </details>
-            <details class="tool" data-tool="packs">
-              <summary><b>Asset packs</b><span>Animations and icons from Momentum's pack library</span></summary>
-              <div class="tool-body"><div class="vw-note" id="pkNote"></div><div class="pack-grid" id="pkGrid"></div></div>
             </details>
             <details class="tool" data-tool="mypacks">
               <summary><b>Pack maker</b><span>Build your own asset pack, or import one from a zip or folder</span></summary>
@@ -375,55 +467,9 @@
                 <div class="vw-btns" id="pmOnFlipper"></div>
               </div>
             </details>
-            <details class="tool" data-tool="sync">
-              <summary><b>Folder sync</b><span>Keep a PC folder and an SD card folder in step</span></summary>
-              <div class="tool-body">
-                <div class="vw-btns" id="syPairs"></div>
-                <div class="tool-row"><button class="mini" id="syAdd"><i data-icon="folder"></i>Add a folder pair</button></div>
-                <div id="syPlan"></div>
-              </div>
-            </details>
-            <details class="tool" data-tool="mfkeys">
-              <summary><b>MIFARE keys</b><span>Your own keys the Flipper tries when reading MIFARE Classic cards</span></summary>
-              <div class="tool-body">
-                <div class="vw-note">Keys you add here go to <code>nfc/assets/mf_classic_dict_user.nfc</code>; the Flipper tries them on top of its built-in list. One key is 12 hex characters, e.g. <code>A0A1A2A3A4A5</code>.</div>
-                <textarea id="mkAdd" spellcheck="false" placeholder="Paste one or more keys (any separators)"></textarea>
-                <div class="tool-row"><button class="mini" id="mkAddBtn">Add</button><button class="mini" id="mkLoad">Reload from Flipper</button><span class="tool-status" id="mkStatus"></span><button class="mini primary" id="mkSave">Save to Flipper</button></div>
-                <div class="key-list" id="mkList"></div>
-              </div>
-            </details>
-            <details class="tool" data-tool="board">
-              <summary><b>Wi-Fi dev board</b><span>Flash the ESP32-S2 Wi-Fi board: official firmware or your own file</span></summary>
-              <div class="tool-body" id="bdBody">
-                <div class="vw-note"><b>1.</b> Unplug the board from the Flipper. <b>2.</b> Hold its <b>BOOT</b> button while plugging its own USB port into this PC, then let go. <b>3.</b> Pick a firmware and flash. Only ESP32-S2 firmware is accepted, and each part is checked before anything is written.</div>
-                <div class="tool-row"><select id="bdOfficial"></select><button class="mini" id="bdUseOfficial">Use this</button><span class="tool-or">or</span>
-                  <button class="mini" id="bdPick"><i data-icon="folder"></i>Choose a file</button><span class="tool-or">(or drop a .bin / .zip / .tgz here)</span></div>
-                <div class="vw-note" id="bdPlan"></div>
-                <div class="tool-row"><select id="bdPort"></select><button class="mini" id="bdLook">Look for the board</button><button class="mini primary" id="bdFlash" disabled>Flash</button></div>
-              </div>
-            </details>
-            <details class="tool" data-tool="ble">
-              <summary><b>Bluetooth</b><span>Experimental: mirror and control your Flipper without a cable</span></summary>
-              <div class="tool-body">
-                <div class="vw-note">Turn Bluetooth on (on the Flipper and on this PC), then scan. The first time, your Flipper shows a PIN and Windows asks for it. While mirroring over Bluetooth, the screen, buttons, screenshots and GIFs work; files and builds still use USB.</div>
-                <div class="tool-row"><button class="mini" id="btScan">Scan</button><span class="tool-status" id="btStatus"></span></div>
-                <div class="vw-btns" id="btList"></div>
-              </div>
-            </details>
-            <details class="tool" data-tool="remote">
-              <summary><b>Phone remote</b><span>Your Flipper's screen and buttons on your phone, over your home Wi-Fi</span></summary>
-              <div class="tool-body">
-                <div class="vw-note">Open the link (or scan the code) on a phone on the same Wi-Fi. It only works on your home network, only with this link's secret code, and stops when you switch it off or close Workbench. Windows may ask once whether to allow Workbench on private networks: allow it for this to work.</div>
-                <div class="tool-row"><button class="mini primary" id="rmToggle">Turn on</button><span class="tool-status" id="rmStatus">Off</span></div>
-                <div class="remote-box" id="rmBox" hidden><img id="rmQr" alt=""><div><code id="rmUrl"></code><br><button class="mini" id="rmCopy">Copy link</button></div></div>
-              </div>
-            </details>
-            <details class="tool" data-tool="companion">
-              <summary><b>Companion app</b><span>A small app on your Flipper that shows what Workbench did</span></summary>
-              <div class="tool-body">
-                <div class="vw-note">Builds the Workbench companion for your Flipper's firmware and installs it to Apps &gt; Tools. Open it on the Flipper to see when you were last connected, backed up and synced.</div>
-                <div class="tool-row"><button class="mini primary" id="coInstall"><i data-icon="download"></i>Build &amp; install</button></div>
-              </div>
+            <details class="tool" data-tool="packs">
+              <summary><b>Asset packs</b><span>Animations and icons from Momentum's pack library</span></summary>
+              <div class="tool-body"><div class="vw-note" id="pkNote"></div><div class="pack-grid" id="pkGrid"></div></div>
             </details>
           </div>
         </div>

@@ -27,6 +27,7 @@ Copy-Item "$root\assets\icon.png" "$root\ui\icon.png" -Force
     --hidden-import packmaker `
     --hidden-import iconslots `
     --hidden-import heatshrink2 `
+    --collect-all imageio_ffmpeg `
     --hidden-import sync `
     --hidden-import devkit `
     --hidden-import remote `

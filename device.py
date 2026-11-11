@@ -1066,6 +1066,52 @@ def _parse(buf):
     return out
 
 
+class LcdPlayer:
+    """Plays frames on the Flipper's own screen through a running Mirror, until stopped.
+
+    get() returns (list of 1024-byte frames, fps) each time, so edits show up live. If the mirror steps
+    aside for a USB job, the virtual display ends with its session and is started again afterwards."""
+
+    def __init__(self, mirror, get, on_state=lambda state: None):
+        self.mirror, self.get, self.on_state = mirror, get, on_state
+        self._stop = threading.Event()
+        self._thread = threading.Thread(target=self._run, daemon=True, name="lcd-player")
+
+    def start(self):
+        self._thread.start()
+
+    def stop(self):
+        self._stop.set()
+        self._thread.join(3)
+
+    def _run(self):
+        m, session, i = self.mirror, None, 0
+        try:
+            while not self._stop.is_set():
+                if not m.running:
+                    session = None
+                    self._stop.wait(.1)
+                    continue
+                if session != m.session:
+                    if not m.virtual_start():
+                        self._stop.wait(.3)
+                        continue
+                    session = m.session
+                    self.on_state("live")
+                frames, fps = self.get()
+                if not frames:
+                    self._stop.wait(.1)
+                    continue
+                t = time.monotonic()
+                m.virtual_frame(frames[i % len(frames)])
+                i += 1
+                self._stop.wait(max(0.0, 1 / max(1, fps) - (time.monotonic() - t)))
+        finally:
+            if session is not None and session == m.session and m.running:
+                m.virtual_stop()
+            self.on_state("stopped")
+
+
 class Mirror:
     """Streams the Flipper's screen and sends button presses. Holds the port while running."""
 
@@ -1081,6 +1127,9 @@ class Mirror:
         self._cmd = 1
         self._ending = False      # set when we asked the Flipper to end the RPC session
         self._stop_sent = False   # stop_session already sent for this run
+        self.session = 0          # goes up each time the RPC session (re)starts
+        self._ack = threading.Event()
+        self._wait_cmd = 0
 
     # -- control
     def start(self):
@@ -1138,6 +1187,33 @@ class Mirror:
         for t in seq:
             self._send(23, _field_varint(1, k) + _field_varint(2, TYPES[t]))
 
+    # -- our own pictures on the Flipper's screen (RPC virtual display; the Flipper drops it when the session ends)
+    def virtual_start(self):
+        return self._request(26)
+
+    def virtual_stop(self):
+        return self._request(27)
+
+    def virtual_frame(self, rows):
+        """rows: 1024 bytes of XBM rows, the layout the firmware draws straight to the screen.
+        The firmware never answers a frame, so there's nothing to wait for; the caller paces them."""
+        self._send(22, _field_bytes(1, rows))
+
+    def _request(self, field, payload=b"", timeout=1.0):
+        """Send and wait for the Flipper's reply, so frames never pile up faster than it takes them."""
+        ser = self._ser
+        if ser is None or not self.running:
+            return False
+        with self._send_lock:
+            self._cmd += 1
+            self._wait_cmd = self._cmd
+            self._ack.clear()
+            try:
+                ser.write(_main(self._cmd, field, payload))
+            except (serial.SerialException, OSError):
+                return False
+        return self._ack.wait(timeout)
+
     # -- internals
     def _send(self, field, payload=b""):
         ser = self._ser
@@ -1176,6 +1252,7 @@ class Mirror:
                 ser.reset_input_buffer()
                 self._ser = ser
                 self.running = True
+                self.session += 1
                 self._send(20)                  # start screen stream
                 self.on_state("live")
                 pending = bytes(st.read.buffer)  # anything the CLI reader already buffered
@@ -1203,6 +1280,8 @@ class Mirror:
                     if len(msg) < ln:
                         break
                     fields = _parse(msg)
+                    if self._wait_cmd and fields.get(1, [0])[0] == self._wait_cmd:
+                        self._ack.set()
                     if 22 in fields:                          # gui_screen_frame
                         frame = _parse(fields[22][0])
                         data = frame.get(1, [b""])[0]

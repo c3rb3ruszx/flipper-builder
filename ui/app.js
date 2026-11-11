@@ -358,7 +358,10 @@ function mockApi() {
     pm_icon_preview: async (p) => { const s = p.includes("128") ? [128, 64] : p.includes("46") ? [46, 49] : [14, 14]; return { w: s[0], h: s[1], fps: 4, frames: [mockBits(s[0], s[1])] }; },
     pm_flipper: async () => ({ packs: ["Dolphin Noir", "Kuro - Akira"], active: "Kuro - Akira" }), pm_uninstall: async () => ({ ok: true }),
     pm_install: async () => { later(300, [{ type: "fprog", label: "Copying the pack", done: 4000, total: 9000 }]); later(1200, [{ type: "finished", ok: true, quiet: true, send_only: true, pm_done: { name: "x" } }]); return { ok: true }; },
-    anim_list: async () => ({ made: [] }), anim_pick: async () => ({ cancelled: true }),
+    anim_list: async () => ({ made: [] }), anim_pick: async () => ({ ok: true, name: "boot1", kind: "video", duration: 20.3, fps: 60, w: 1080, h: 1920 }),
+    anim_build: async (o) => { const n = Math.min(o.max_frames, 24); return { fps: o.fps || 12, count: n, mem: n * 420, used: n / (o.fps || 12), cut: !!o.fps, flipped: true, frames: Array.from({ length: n }, () => mockBits(128, 64)) }; },
+    anim_commit: async (f) => ({ count: f.length, mem: f.length * 420 }), anim_use_file: async () => ({ ok: true, name: "drop", kind: "gif", duration: 2, fps: 10, w: 64, h: 32 }),
+    anim_stream: async (on) => { if (on) later(200, [{ type: "lcdstream", state: "live" }]); return { ok: true }; },
     packs_list: async () => ({ packs: [{ id: "a", name: "Akira", author: "Kuronons", anims: 1, icons: 3, previews: [] }] }),
     sync_pairs: async () => ({ pairs: [{ local: "D:\\badusb", remote: "/ext/badusb", mode: "both", delete: false }] }),
     sync_save_pairs: async () => ({ ok: true }),
@@ -1250,8 +1253,9 @@ function setSub(name) {
   moveInk($("#flSegInk"), $(`#flSeg button[data-sub="${name}"]`), false);
   $("#subApps").hidden = name !== "apps"; $("#subFiles").hidden = name !== "files"; $("#subBackups").hidden = name !== "backups";
   $("#subCli").hidden = name !== "cli";
-  $("#subTools").hidden = name !== "tools";
+  $("#subTools").hidden = name !== "tools"; $("#subStudio").hidden = name !== "studio";
   if (name === "tools") toolsShow();
+  if (name === "studio") studioShow();
   if (name === "files") loadFiles(FM.path);
   if (name === "backups") loadBackups();
   if (name === "cli") cliShow();
@@ -1697,8 +1701,13 @@ async function fwReady(info) {
 const TL = { music: null, audio: null, anim: null, animTimer: null };
 function toolsShow() {
   renderIcons($("#toolsBody"));
-  animListMade(); syRender();
+  syRender();
+}
+function studioShow() {
+  renderIcons($("#studioBody"));
+  animListMade();
   if ($('.tool[data-tool="packs"]').open) packsLoad();
+  if ($('.tool[data-tool="mypacks"]').open) pmLoad();
 }
 /* ---------- NFC maker ---------- */
 const NF_KINDS = {
@@ -1817,26 +1826,127 @@ function muPlay() {
   $("#muPlay").textContent = "Stop";
   setTimeout(() => { if (TL.audio === ctx) muPlay(); }, (t - ctx.currentTime) * 1000 + 200);
 }
+function anOpts() {
+  const a = TL.anim, n = (id) => +$(id).value;
+  return { fit: $("#anFit").value, dither: $("#anDither").value, threshold: n("#anThr"), contrast: n("#anCon") / 10, invert: $("#anInv").checked,
+    fps: n("#anFps") || null, max_frames: n("#anMax") || 60, background: $("#anBg").value, zoom: n("#anZoom") / 100, move_x: n("#anMx") / 100, move_y: n("#anMy") / 100,
+    start: a.kind === "image" ? 0 : n("#anStart"), end: a.kind === "image" ? 0 : n("#anEnd") };
+}
+function anLabels() {
+  const fps = +$("#anFps").value;
+  $("#anFpsV").textContent = fps ? `${fps} fps` : "Auto"; $("#anThrV").textContent = $("#anThr").value; $("#anConV").textContent = (+$("#anCon").value / 10).toFixed(1);
+  $("#anZoomV").textContent = `${$("#anZoom").value}%`; $("#anMxV").textContent = $("#anMx").value; $("#anMyV").textContent = $("#anMy").value;
+  $("#anTrimV").textContent = `${(+$("#anStart").value).toFixed(1)} s to ${(+$("#anEnd").value).toFixed(1)} s`;
+}
+function animQueue() { anLabels(); clearTimeout(TL.animQ); TL.animQ = setTimeout(animRebuild, 170); }
+function anStatusText(mem) {
+  const a = TL.anim, n = a.seq.filter((f) => !f.off).length, kb = Math.max(1, Math.round(mem / 1024)), st = $("#anStatus");
+  st.textContent = `${n} frame${n === 1 ? "" : "s"} at ${a.fps} fps, about ${kb} KB of Flipper memory.` + (a.cut ? ` Only the first ${a.used.toFixed(1)} s fits. Raise Max frames or lower the frame rate to fit more.` : "") + (mem > 70 * 1024 ? " That's a lot: use fewer frames or your Flipper may run out of memory." : "");
+  st.classList.toggle("err", mem > 70 * 1024);
+}
+/* a frame = a converted picture (src) plus what was drawn on it (e: pixel -> ink), so changing the look keeps the drawing */
+function anBake(f) {
+  const a = TL.anim, b = a.base[f.src].slice();
+  f.e.forEach((ink, p) => { const i = (p >> 7) * 16 + ((p & 127) >> 3), bit = 1 << (p & 7); if (ink) b[i] |= bit; else b[i] &= ~bit; });
+  f.bits = b;
+}
+function anStripDraw() {
+  const a = TL.anim, strip = $("#anStrip"); strip.innerHTML = "";
+  a.seq.forEach((f, i) => {
+    const cv = document.createElement("canvas"); cv.className = "an-thumb" + (f.off ? " off" : ""); pmPaint(cv, f.bits, 128, 64);
+    cv.onclick = () => { anPlay(false); anShow(i); }; strip.appendChild(cv);
+  });
+  $("#anStripTitle").textContent = `Frames: ${a.seq.filter((f) => !f.off).length}`;
+}
+async function anCommit() {
+  const a = TL.anim; a.edited = true;
+  const kept = a.seq.filter((f) => !f.off);
+  const x = await api.anim_commit(kept.map((f) => btoa(String.fromCharCode(...f.bits))));
+  if (x.error) { toast(x.error); return false; }
+  if (a === TL.anim) anStatusText(x.mem);
+  return true;
+}
+function anShow(i) {
+  const a = TL.anim; if (!a || !a.seq.length) return;
+  a.i = (i + a.seq.length) % a.seq.length;
+  const f = a.seq[a.i]; pmPaint($("#anCanvas"), f.bits, 128, 64);
+  const kept = a.seq.filter((x) => !x.off);
+  $("#anPos").textContent = `${Math.max(1, kept.indexOf(f) + 1)} / ${kept.length} at ${a.fps} fps`;
+  const strip = $("#anStrip"), prev = strip.querySelector(".on"), cur = strip.children[a.i];
+  if (prev) prev.classList.remove("on");
+  if (cur) { cur.classList.add("on"); if (cur.offsetLeft < strip.scrollLeft || cur.offsetLeft + cur.offsetWidth > strip.scrollLeft + strip.clientWidth) strip.scrollLeft = cur.offsetLeft - strip.clientWidth / 2; }
+  $("#anToggleFrame").textContent = f.off ? "Put this frame back" : "Remove this frame";
+}
+function anStep(dir) {
+  const a = TL.anim; if (!a || !a.seq.length || a.seq.every((f) => f.off)) return;
+  let i = a.i; do { i = (i + dir + a.seq.length) % a.seq.length; } while (a.seq[i].off);
+  anShow(i);
+}
+function anPlay(on) {
+  const a = TL.anim; if (!a) return;
+  a.playing = on; clearInterval(TL.animTimer); $("#anPlay").textContent = on ? "Pause" : "Play";
+  if (on && a.seq.length > 1) TL.animTimer = setInterval(() => anStep(1), 1000 / a.fps);
+}
 async function animRebuild() {
-  if (!TL.anim) return;
-  $("#anStatus").textContent = "Converting...";
-  const r = await api.anim_build({ fit: $("#anFit").value, dither: $("#anDither").value, threshold: +$("#anThr").value,
-    contrast: +$("#anCon").value / 10, invert: $("#anInv").checked, fps: $("#anFps").value || null });
-  if (r.error) { $("#anStatus").textContent = r.error; return; }
-  TL.anim.frames = r.frames.map((b) => b64bytes(b)); TL.anim.fps = r.fps; TL.anim.i = 0;
-  $("#anStatus").textContent = `${r.count} frame${r.count > 1 ? "s" : ""} at ${r.fps} fps, about ${Math.max(1, Math.round(r.mem / 1024))} KB of Flipper memory`;
-  $("#anWrap").hidden = false; $("#anSaveRow").hidden = false;
-  clearInterval(TL.animTimer);
-  const draw = () => {
-    const a = TL.anim; if (!a || !a.frames.length) return;
-    const c = $("#anCanvas").getContext("2d"), img = c.createImageData(128, 64), d = a.frames[a.i % a.frames.length];
-    for (let y = 0; y < 64; y++) for (let x = 0; x < 128; x++) {
-      const on = (d[y * 16 + (x >> 3)] >> (x & 7)) & 1, k = (y * 128 + x) * 4;
-      img.data[k + 3] = on ? 255 : 0;
-    }
-    c.putImageData(img, 0, 0); a.i++;
+  const a = TL.anim; if (!a) return;
+  const seq = (TL.animSeq = (TL.animSeq || 0) + 1), opts = anOpts();
+  $("#anStatus").classList.remove("err"); $("#anStatus").textContent = "Converting...";
+  const r = await api.anim_build(opts);
+  if (seq !== TL.animSeq || a !== TL.anim) return;
+  if (r.error) { $("#anStatus").textContent = r.error; $("#anStatus").classList.add("err"); return; }
+  const key = [opts.fps, opts.max_frames, opts.start, opts.end].join();
+  a.base = r.frames.map((b) => b64bytes(b)); a.fps = r.fps; a.cut = r.cut; a.used = r.used;
+  if (key !== a.key && a.edited) toast("The frames changed, so your frame edits were cleared.");
+  if (key !== a.key) { a.seq = a.base.map((_, i) => ({ src: i, e: new Map(), off: false })); a.undo = []; a.edited = false; a.i = 0; }   // different frames: earlier edits no longer line up
+  a.key = key; a.seq.forEach(anBake);
+  $("#anWrap").hidden = false; $("#anSaveRow").hidden = false; $("#anStripWrap").hidden = false;
+  anStripDraw(); anShow(Math.min(a.i, a.seq.length - 1)); anPlay(a.playing);
+  if (a.edited) await anCommit(); else anStatusText(r.mem);
+}
+function anSnapshot() { const a = TL.anim; a.undo.push(a.seq.map((f) => ({ ...f, e: new Map(f.e) }))); if (a.undo.length > 40) a.undo.shift(); }
+function anRefresh(i) { anStripDraw(); anShow(i); anCommit(); }
+function anFrameOp(fn) { const a = TL.anim; if (!a || !a.seq.length) return; anPlay(false); anSnapshot(); fn(a); }
+function anSetTool(t) { TL.pen = TL.pen === t ? null : t; $("#anPen").classList.toggle("on", TL.pen === "pen"); $("#anEraser").classList.toggle("on", TL.pen === "eraser"); $("#anCanvas").classList.toggle("drawing", !!TL.pen); if (TL.pen) anPlay(false); }
+function anDrawBind() {
+  const cv = $("#anCanvas"); let last = null;
+  const at = (e) => { const r = cv.getBoundingClientRect(); return [Math.max(0, Math.min(127, Math.floor((e.clientX - r.left) / r.width * 128))), Math.max(0, Math.min(63, Math.floor((e.clientY - r.top) / r.height * 64)))]; };
+  const plot = (x0, y0, x1, y1) => {
+    const a = TL.anim, f = a.seq[a.i], ink = TL.pen === "pen" ? 1 : 0, n = Math.max(Math.abs(x1 - x0), Math.abs(y1 - y0), 1);
+    for (let k = 0; k <= n; k++) f.e.set(Math.round(y0 + (y1 - y0) * k / n) * 128 + Math.round(x0 + (x1 - x0) * k / n), ink);
+    anBake(f); pmPaint(cv, f.bits, 128, 64);
   };
-  draw(); TL.animTimer = setInterval(draw, 1000 / r.fps);
+  cv.addEventListener("pointerdown", (e) => { if (!TL.pen || !TL.anim || !TL.anim.seq.length) return; anPlay(false); anSnapshot(); cv.setPointerCapture(e.pointerId); last = at(e); plot(...last, ...last); });
+  cv.addEventListener("pointermove", (e) => { if (!last) return; const p = at(e); plot(...last, ...p); last = p; });
+  const end = () => { if (!last) return; last = null; const a = TL.anim; anRefresh(a.i); };
+  cv.addEventListener("pointerup", end); cv.addEventListener("pointercancel", end);
+}
+function anLoaded(r) {
+  if (r.error) { toast(r.error); return; }
+  if (!r.ok) return;
+  TL.anim = { base: [], seq: [], undo: [], i: 0, fps: 1, playing: true, edited: false, kind: r.kind, duration: r.duration };
+  $("#anName").value = r.name.replace(/[^A-Za-z0-9_]+/g, "_").slice(0, 40);
+  const moving = r.kind !== "image"; $("#anTrim").hidden = !moving;
+  ["#anStart", "#anEnd"].forEach((s) => ($(s).max = r.duration || 1));
+  $("#anStart").value = 0; $("#anEnd").value = r.duration || 1;
+  $("#anZoom").value = 100; $("#anMx").value = 0; $("#anMy").value = 0;
+  anLabels(); animRebuild();
+}
+const anOpen = () => { const t = $('.tool[data-tool="anim"]'); return t && t.open && S.tab === "flipper" && FM.sub === "studio"; };
+function anDropFile(f) {
+  if (f.size > 64 * 1024 * 1024) { toast("That file is too big to drop. Use Pick a video instead."); return; }
+  $("#anStatus").textContent = "Reading...";
+  const rd = new FileReader();
+  rd.onload = async () => anLoaded(await api.anim_use_file(f.name, String(rd.result).split(",")[1]));
+  rd.readAsDataURL(f);
+}
+function anStreamState(state) {
+  const b = $("#anStream"), on = state === "live"; TL.streaming = on;
+  b.classList.toggle("primary", on); b.textContent = on ? "Stop showing on my Flipper" : "Show on my Flipper";
+}
+async function anStreamToggle() {
+  if (TL.streaming) { await api.anim_stream(false); anStreamState("stopped"); return; }
+  if (!needDevice()) return;
+  const r = await api.anim_stream(true); if (r.error) toast(r.error);
 }
 async function animListMade() {
   const r = await api.anim_list(), box = $("#anMade");
@@ -2618,6 +2728,7 @@ function onEvents(batch) {
         break;
       }
       case "mirror": onMirrorState(e); break;
+      case "lcdstream": anStreamState(e.state); break;
       case "fprog": onFprog(e); break;
       case "cli": onCli(e); break;
       case "ble_pin": (async () => {
@@ -2798,13 +2909,37 @@ function bind() {
     const r = await api.nfc_export($("#nfName").value, NF.last.nfc);
     if (r.error) toast(r.error); else if (r.ok) toast("Saved on this PC");
   };
-  $("#anPick").onclick = async () => { const r = await api.anim_pick(); if (r.error) { toast(r.error); return; } if (!r.ok) return; TL.anim = { frames: [], i: 0 }; $("#anName").value = r.name.replace(/[^A-Za-z0-9_]+/g, "_").slice(0, 40); animRebuild(); };
-  ["#anFit", "#anDither", "#anFps", "#anInv"].forEach((s) => ($(s).onchange = animRebuild));
-  ["#anThr", "#anCon"].forEach((s) => ($(s).onchange = animRebuild));
+  $("#anPick").onclick = async () => anLoaded(await api.anim_pick());
+  ["#anFit", "#anDither", "#anBg", "#anInv", "#anMax"].forEach((x) => ($(x).onchange = animQueue));
+  ["#anFps", "#anThr", "#anCon", "#anZoom", "#anMx", "#anMy"].forEach((x) => ($(x).oninput = animQueue));
+  $("#anStart").oninput = () => { if (+$("#anStart").value >= +$("#anEnd").value) $("#anStart").value = Math.max(0, +$("#anEnd").value - .05); animQueue(); };
+  $("#anEnd").oninput = () => { if (+$("#anEnd").value <= +$("#anStart").value) $("#anEnd").value = +$("#anStart").value + .05; animQueue(); };
+  $("#anPrev").onclick = () => { anPlay(false); anStep(-1); };
+  $("#anNext").onclick = () => { anPlay(false); anStep(1); };
+  $("#anPlay").onclick = () => TL.anim && anPlay(!TL.anim.playing);
+  $("#anStream").onclick = anStreamToggle;
+  $("#anToggleFrame").onclick = () => anFrameOp((a) => {
+    const f = a.seq[a.i];
+    if (!f.off && a.seq.filter((x) => !x.off).length === 1) { a.undo.pop(); toast("An animation needs at least one frame."); return; }
+    f.off = !f.off; anRefresh(a.i);
+  });
+  $("#anDup").onclick = () => anFrameOp((a) => {
+    if (a.seq.filter((x) => !x.off).length >= 255) { a.undo.pop(); toast("An animation can have 255 frames at most."); return; }
+    const f = a.seq[a.i]; a.seq.splice(a.i + 1, 0, { ...f, e: new Map(f.e), off: false }); anBake(a.seq[a.i + 1]); anRefresh(a.i + 1);
+  });
+  const anMove = (d) => anFrameOp((a) => { const j = a.i + d; if (j < 0 || j >= a.seq.length) { a.undo.pop(); return; } [a.seq[a.i], a.seq[j]] = [a.seq[j], a.seq[a.i]]; anRefresh(j); });
+  $("#anLeft").onclick = () => anMove(-1);
+  $("#anRight").onclick = () => anMove(1);
+  $("#anClear").onclick = () => anFrameOp((a) => { const f = a.seq[a.i]; f.e = new Map(); anBake(f); anRefresh(a.i); });
+  $("#anUndo").onclick = () => { const a = TL.anim; if (!a || !a.undo.length) return; anPlay(false); a.seq = a.undo.pop(); a.seq.forEach(anBake); anRefresh(Math.min(a.i, a.seq.length - 1)); };
+  $("#anPen").onclick = () => anSetTool("pen");
+  $("#anEraser").onclick = () => anSetTool("eraser");
+  anDrawBind();
+  $('.tool[data-tool="anim"]').addEventListener("toggle", (e) => { if (!e.target.open && TL.streaming) anStreamToggle(); });
   $("#anInstall").onclick = async () => {
     if (!needDevice()) return;
     $("#anInstall").disabled = true; toast("Installing the animation...");
-    const r = await api.anim_install($("#anName").value, +$("#anWeight").value);
+    const r = await api.anim_install($("#anName").value, +$("#anWeight").value, $("#anTarget").value);
     $("#anInstall").disabled = false;
     if (r.error) { toast(r.error); return; }
     $("#anNote").innerHTML = r.momentum ? `Installed to the <b>Workbench</b> asset pack. On your Flipper, pick it in <b>Momentum Settings &gt; Interface &gt; Graphics &gt; Asset pack</b> to see it.` : `Installed to /ext/dolphin. It plays among your desktop animations after the Flipper restarts.`;
@@ -2984,13 +3119,16 @@ function bind() {
   window.addEventListener("dragenter", (e) => {
     e.preventDefault();
     if (bdOpen() && [...e.dataTransfer.types].includes("Files")) { $("#bdBody").classList.add("drop"); return; }   // firmware for the dev board
+    if (anOpen() && [...e.dataTransfer.types].includes("Files")) { $("#anDrop").classList.add("drop"); return; }   // a video or picture to convert
     dragDepth++; $("#drop").classList.add("on");
   });
-  window.addEventListener("dragleave", () => { if (--dragDepth <= 0) { dragDepth = 0; $("#drop").classList.remove("on"); } });
+  window.addEventListener("dragleave", (e) => { if (!e.relatedTarget) $("#anDrop").classList.remove("drop"); if (--dragDepth <= 0) { dragDepth = 0; $("#drop").classList.remove("on"); } });
   window.addEventListener("dragover", (e) => e.preventDefault());
   window.addEventListener("drop", (e) => {
     e.preventDefault(); dragDepth = 0; $("#drop").classList.remove("on");
     if (bdOpen() && e.dataTransfer.files && e.dataTransfer.files.length) { $("#bdBody").classList.remove("drop"); bdDropFile(e.dataTransfer.files[0]); return; }
+    $("#anDrop").classList.remove("drop");
+    if (anOpen() && e.dataTransfer.files && e.dataTransfer.files.length) { anDropFile(e.dataTransfer.files[0]); return; }
     const t = e.dataTransfer.getData("text/uri-list") || e.dataTransfer.getData("text/plain");
     if (t && t.includes("github.com")) { setTab("build"); $("#url").value = t.split("\n")[0].trim(); renderPreview(); LCD.poke(); toast("Link dropped"); }
     else toast("That's not a GitHub link");

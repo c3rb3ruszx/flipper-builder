@@ -629,7 +629,7 @@ body.mirroring .dp.ok::after { border-color: var(--orange); }
 }
 
 /* ---------- Flipper CLI terminal ---------- */
-#flSeg { grid-template-columns: repeat(5, 1fr); }
+#flSeg { grid-template-columns: repeat(6, 1fr); }
 .cli-term { flex: 1; min-height: 0; display: flex; flex-direction: column; background: #0a0a0a;
   border: 1px solid var(--line); border-radius: 12px; overflow: hidden; }
 .cli-term:focus-within { border-color: var(--orange-deep); }
@@ -918,3 +918,30 @@ body.mirroring .scr-btn i { color: var(--orange); }
 #pmIconWrap label.chk { justify-content: flex-start; }
 #pmIconAdd { justify-self: start; }
 .tag-use { font: 600 10.5px var(--px); text-transform: uppercase; color: var(--orange); border: 1px solid var(--orange-deep); border-radius: 4px; padding: 1px 5px; }
+
+/* animation studio */
+.an-drop { display: flex; align-items: center; gap: 12px; flex-wrap: wrap; padding: 14px; border: 1px dashed var(--line-2); border-radius: 10px; }
+.an-drop.drop { border-color: var(--orange); background: #1d140b; }
+.an-view { display: flex; flex-direction: column; gap: 8px; }
+#anWrap { grid-template-columns: auto minmax(0, 1fr); }
+#anWrap .anim-opts { grid-template-columns: repeat(auto-fit, minmax(205px, 1fr)); }
+#anWrap .anim-opts label { white-space: nowrap; min-width: 0; }
+#anWrap .anim-opts select { min-width: 0; max-width: 135px; }
+#anWrap .an-val input[type=range] { width: 84px; }
+.an-transport { gap: 6px; }
+.an-val { display: inline-flex; align-items: center; gap: 8px; }
+.an-val output { min-width: 44px; text-align: right; font: 12px var(--mono); color: var(--orange-2); }
+.anim-opts input[type=number] { width: 70px; background: #0a0a0a; color: var(--text); border: 1px solid var(--line); border-radius: 7px; padding: 5px 7px; font: 12.5px var(--px); }
+.anim-opts label.chk { justify-content: flex-start; }
+.an-hint { grid-column: 1 / -1; }
+.an-trim { display: flex; align-items: center; gap: 14px; flex-wrap: wrap; }
+.an-trim label { flex: 1; min-width: 180px; }
+.an-trim input[type=range] { flex: 1; accent-color: var(--orange); }
+.an-strip { position: relative; display: flex; gap: 6px; overflow-x: auto; padding: 6px 2px; scrollbar-width: thin; }
+.an-thumb { flex: none; width: 64px; height: 32px; image-rendering: pixelated; border-radius: 3px; background: var(--lcd); cursor: pointer; outline: 2px solid transparent; outline-offset: 1px; }
+.an-thumb.on { outline-color: var(--orange); }
+.an-thumb.off { opacity: .25; }
+@media (max-width: 1100px) { #anWrap { grid-template-columns: 1fr; } }
+#anCanvas.drawing { cursor: crosshair; touch-action: none; }
+.an-edit { gap: 6px; }
+
