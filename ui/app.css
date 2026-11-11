@@ -945,3 +945,50 @@ body.mirroring .scr-btn i { color: var(--orange); }
 #anCanvas.drawing { cursor: crosshair; touch-action: none; }
 .an-edit { gap: 6px; }
 
+/* health check */
+.hc-cards { display: grid; grid-template-columns: repeat(auto-fit, minmax(150px, 1fr)); gap: 8px; }
+.hc-card { display: flex; flex-direction: column; gap: 2px; padding: 10px 12px; background: var(--panel-2); border: 1px solid var(--line); border-radius: 10px; }
+.hc-card small { font-size: 11.5px; color: var(--muted); }
+.hc-card b { font: 700 18px var(--px); color: var(--text); }
+.hc-card span { font-size: 11.5px; color: var(--dim); min-height: 14px; }
+.hc-card.bad { border-color: var(--err); }
+.hc-card.bad b { color: var(--err); }
+.hc-graph { width: 100%; height: 120px; background: #0c0c0c; border: 1px solid var(--line); border-radius: 10px; }
+.hc-pack.warn { border-color: #5a3410; }
+.hc-pack.high { border-color: var(--err); }
+
+/* studio upgrades */
+.an-bubble { flex-wrap: wrap; gap: 8px; }
+.an-bubble input[type=text] { flex: 1; min-width: 180px; }
+.an-bubble input[type=number], #anWhenRow input[type=number] { width: 56px; background: #0a0a0a; color: var(--text); border: 1px solid var(--line); border-radius: 7px; padding: 4px 6px; font: 12.5px var(--px); }
+.an-bubble label { display: inline-flex; gap: 5px; align-items: center; }
+.an-edit label.chk { font-size: 12px; }
+.pm-previews { display: flex; gap: 12px; flex-wrap: wrap; }
+.pm-previews figure { margin: 0; display: flex; flex-direction: column; gap: 4px; }
+.pm-previews figcaption { font-size: 11.5px; color: var(--muted); }
+
+/* IR remote builder */
+.irb-pad { display: grid; grid-template-columns: repeat(auto-fill, minmax(170px, 1fr)); gap: 8px; padding: 12px; background: #101010; border: 1px solid var(--line); border-radius: 14px; }
+.irb-key { display: flex; flex-direction: column; gap: 4px; padding: 8px; background: var(--panel-2); border: 1px solid var(--line-2); border-radius: 10px; }
+.irb-key input[type=text] { font-weight: 600; }
+.irb-key small { font: 11px var(--mono); color: var(--muted); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.irb-acts { display: flex; gap: 4px; flex-wrap: wrap; }
+.irb-acts .mini { padding: 3px 7px; }
+.irb-list { max-height: 260px; overflow-y: auto; }
+.irb-pick { padding: 10px; border: 1px solid var(--orange-deep); border-radius: 10px; display: flex; flex-direction: column; gap: 8px; }
+.irb-pick-list { display: grid; grid-template-columns: repeat(auto-fill, minmax(220px, 1fr)); gap: 4px 12px; max-height: 260px; overflow-y: auto; }
+.irb-pick-item small { color: var(--muted); font: 11px var(--mono); }
+.tool input#irbTAddr, .tool input#irbTCmd { width: 90px; flex: none; min-width: 0; }
+
+/* BadUSB editor + passport */
+.bu-wrap { position: relative; height: 280px; flex: none; }
+.bu-text { position: absolute; inset: 0; margin: 0; padding: 12px 14px; font: 13px/1.55 var(--mono); tab-size: 4; white-space: pre; overflow: auto;
+  background: transparent; color: transparent; caret-color: var(--orange); resize: none; outline: 0; border: 0; }
+.bu-text::selection { background: rgba(255,130,0,.3); color: transparent; }
+.bu-wrap .ed-hl { white-space: pre; overflow: hidden; }
+.ed-hl .bu-bad { text-decoration: underline wavy var(--err); text-underline-offset: 3px; }
+.bu-problems { font-size: 12.5px; color: var(--err); display: flex; flex-direction: column; gap: 2px; }
+.bu-problems .ok { color: var(--ok); }
+.pp-opts { grid-template-columns: 1fr; }
+.tool input#ppName { width: 140px; flex: none; }
+

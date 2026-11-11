@@ -219,6 +219,119 @@
               <input type="checkbox" id="amToggle" checked><span class="switch"><span class="knob"></span></span>
               <span class="toggle-text">Show my Flipper's screen as soon as it's plugged in</span>
             </label>
+            <label class="toggle tool-setting" title="The record button under the screen saves an MP4 video instead of a GIF">
+              <input type="checkbox" id="recMp4"><span class="switch"><span class="knob"></span></span>
+              <span class="toggle-text">Save screen recordings as MP4 videos instead of GIFs</span>
+            </label>
+            <details class="tool" open data-tool="health">
+              <summary><b>Health check</b><span>Memory, battery, SD card, and how heavy your animations are</span></summary>
+              <div class="tool-body">
+                <div class="hc-cards">
+                  <div class="hc-card"><small>Free memory</small><b id="hcFree">-</b><span id="hcFreeSub"></span></div>
+                  <div class="hc-card"><small>Lowest since restart</small><b id="hcMin">-</b><span id="hcMinSub"></span></div>
+                  <div class="hc-card"><small>Battery</small><b id="hcBat">-</b><span id="hcBatSub"></span></div>
+                  <div class="hc-card"><small>SD card</small><b id="hcSd">-</b><span id="hcSdSub"></span></div>
+                </div>
+                <canvas id="hcGraph" class="hc-graph" width="640" height="120"></canvas>
+                <div class="tool-row">
+                  <label class="chk"><input type="checkbox" id="hcLive" checked> Update every 5 seconds</label>
+                  <button class="mini" id="hcNow">Check now</button>
+                  <span class="tool-status" id="hcStatus"></span>
+                </div>
+                <div class="vw-note" id="hcAdvice">Each update borrows the USB connection for a moment, so the mirrored screen blinks.</div>
+                <div class="vw-sec">Animations and asset packs</div>
+                <div class="tool-row"><button class="mini" id="hcScan">Check my packs</button><span class="tool-status" id="hcScanStatus">Reads every pack on the SD card. Takes a little while.</span></div>
+                <div class="vw-btns" id="hcPacks"></div>
+              </div>
+            </details>
+            <details class="tool" data-tool="irb">
+              <summary><b>IR remote builder</b><span>Make one remote from buttons of any remote, test them, save it</span></summary>
+              <div class="tool-body">
+                <div class="tool-row">
+                  <input id="irbName" type="text" maxlength="40" placeholder="Remote name, like Living Room" spellcheck="false">
+                  <button class="mini" id="irbExport">Save to PC</button>
+                  <button class="mini primary" id="irbSave">Save to Flipper</button>
+                </div>
+                <div class="irb-pad" id="irbPad"><div class="vw-note">No buttons yet. Add some below: from the IR database, from remotes on your Flipper, by learning them from a real remote, or by typing the codes.</div></div>
+                <div class="vw-sec">Add buttons</div>
+                <div class="tool-row irb-src" id="irbSrc">
+                  <button class="fchip on" data-src="irdb">IR database</button>
+                  <button class="fchip" data-src="flipper">On my Flipper</button>
+                  <button class="fchip" data-src="learn">Learn from a remote</button>
+                  <button class="fchip" data-src="type">Type in</button>
+                </div>
+                <div class="irb-panel" data-src="irdb">
+                  <div class="tool-row"><input id="irbSearch" type="text" placeholder="Search, like samsung tv or lg ac" spellcheck="false"><span class="tool-status" id="irbDbNote"></span></div>
+                  <div class="vw-btns irb-list" id="irbDbList"></div>
+                </div>
+                <div class="irb-panel" data-src="flipper" hidden>
+                  <div class="tool-row"><button class="mini" id="irbFlLoad">Show remotes on my Flipper</button></div>
+                  <div class="vw-btns irb-list" id="irbFlList"></div>
+                </div>
+                <div class="irb-panel" data-src="learn" hidden>
+                  <div class="tool-row"><button class="mini primary" id="irbLearn">Start listening</button><span class="tool-status" id="irbLearnNote">Point your remote at the top of your Flipper and press a button.</span></div>
+                  <div class="vw-btns" id="irbLearned"></div>
+                </div>
+                <div class="irb-panel" data-src="type" hidden>
+                  <div class="tool-row">
+                    <input id="irbTName" type="text" maxlength="32" placeholder="Button name" spellcheck="false">
+                    <label>Protocol <select id="irbTProto"></select></label>
+                    <label>Address <input id="irbTAddr" type="text" maxlength="11" placeholder="0x04" spellcheck="false"></label>
+                    <label>Command <input id="irbTCmd" type="text" maxlength="11" placeholder="0x08" spellcheck="false"></label>
+                    <button class="mini" id="irbTAdd">Add</button>
+                  </div>
+                </div>
+                <div class="irb-pick" id="irbPick" hidden>
+                  <div class="tool-row"><b id="irbPickTitle"></b><span class="pm-spacer"></span><button class="mini" id="irbPickAll">Select all</button><button class="mini primary" id="irbPickAdd">Add selected</button></div>
+                  <div class="irb-pick-list" id="irbPickList"></div>
+                </div>
+                <div class="vw-note">Saved remotes appear in the Infrared app under Saved Remotes, as a list in the order you set here. To test a button, point your Flipper at the device and press Test.</div>
+              </div>
+            </details>
+            <details class="tool" data-tool="profiles">
+              <summary><b>Profiles</b><span>Save your Flipper's whole setup and switch between setups</span></summary>
+              <div class="tool-body">
+                <div class="tool-row">
+                  <input id="prName" type="text" maxlength="40" placeholder="Profile name, like Daily or Demo" spellcheck="false">
+                  <label class="chk" title="Copies every app in /ext/apps too, so they come back exactly. Takes a minute or two."><input type="checkbox" id="prApps"> Include my apps</label>
+                  <button class="mini primary" id="prSave">Save current setup</button>
+                </div>
+                <div class="vw-btns" id="prList"></div>
+                <div class="vw-note">A profile keeps your Momentum settings (asset pack, menu style and the rest), your Flipper's custom name and your app list. Applying one never deletes apps unless you tick that box, and your Flipper needs a restart to show the change.</div>
+              </div>
+            </details>
+            <details class="tool" data-tool="badusb">
+              <summary><b>BadUSB scripts</b><span>Write and check scripts that type on your own computers</span></summary>
+              <div class="tool-body">
+                <div class="tool-row">
+                  <button class="mini" id="buLoad">Show my scripts</button>
+                  <select id="buList"><option value="">New script</option></select>
+                  <input id="buName" type="text" maxlength="60" placeholder="Script name" spellcheck="false">
+                  <button class="mini primary" id="buSave">Save to Flipper</button>
+                </div>
+                <div class="ed-wrap bu-wrap"><pre class="ed-hl" id="buHl" aria-hidden="true"></pre><textarea id="buText" class="bu-text" spellcheck="false" autocomplete="off" wrap="off" placeholder="REM My script&#10;DELAY 500&#10;STRING Hello"></textarea></div>
+                <div class="bu-problems" id="buProblems"></div>
+                <div class="tool-row">
+                  <label title="How the BadUSB app turns letters into key presses. Pick the one your computer's keyboard uses.">Keyboard layout <select id="buLayout"></select></label>
+                  <span class="tool-status" id="buLayoutNote"></span>
+                </div>
+                <div class="vw-note">Only run scripts on computers you own or may use. Commands are checked as you type against what the BadUSB app understands.</div>
+              </div>
+            </details>
+            <details class="tool" data-tool="passport">
+              <summary><b>Passport</b><span>Your Flipper's name and profile picture (Momentum)</span></summary>
+              <div class="tool-body">
+                <div class="anim-wrap">
+                  <div class="anim-lcd"><canvas id="ppCanvas" width="128" height="64"></canvas></div>
+                  <div class="anim-opts pp-opts">
+                    <label>Name <input id="ppName" type="text" maxlength="8" spellcheck="false" placeholder="Real name"></label>
+                    <div class="tool-row"><button class="mini primary" id="ppSave">Save name</button><button class="mini" id="ppReset">Use the real name</button></div>
+                    <div class="tool-row"><button class="mini" id="ppArt">Change the picture</button></div>
+                    <div class="vw-note" id="ppNote">Up to 8 letters and numbers. Your Flipper shows the new name after it restarts, also over Bluetooth and USB.</div>
+                  </div>
+                </div>
+              </div>
+            </details>
             <details class="tool" data-tool="devkit">
               <summary><b>New app</b><span>Start your own Flipper app from a template</span></summary>
               <div class="tool-body">
@@ -364,8 +477,15 @@
                   <div class="tool-row an-edit">
                     <span class="vw-sec" id="anStripTitle">Frames</span>
                     <span class="pm-spacer"></span>
-                    <button class="fchip" id="anPen" title="Draw on the picture above">Pen</button>
-                    <button class="fchip" id="anEraser" title="Erase on the picture above">Eraser</button>
+                    <button class="fchip an-tool" data-tool="pen" title="Draw freehand on the picture above">Pen</button>
+                    <button class="fchip an-tool" data-tool="eraser" title="Erase freehand">Eraser</button>
+                    <button class="fchip an-tool" data-tool="line" title="Drag to draw a straight line">Line</button>
+                    <button class="fchip an-tool" data-tool="box" title="Drag to draw a box">Box</button>
+                    <button class="fchip an-tool" data-tool="circle" title="Drag to draw a circle">Circle</button>
+                    <button class="fchip an-tool" data-tool="text" title="Click where the text should start">Text</button>
+                    <label class="chk" title="Boxes and circles come out solid"><input type="checkbox" id="anFill"> Fill</label>
+                    <label class="chk" title="Shapes and text draw in white (empty) instead of black"><input type="checkbox" id="anWhite"> White</label>
+                    <label class="chk" title="Draw the same thing on every frame, like a title over the whole animation"><input type="checkbox" id="anAll"> All frames</label>
                     <button class="mini" id="anUndo">Undo</button>
                     <button class="mini" id="anClear" title="Remove what you drew on this frame">Clear drawing</button>
                     <button class="mini" id="anLeft" title="Move this frame earlier">Move left</button>
@@ -374,6 +494,16 @@
                     <button class="mini" id="anToggleFrame">Remove this frame</button>
                   </div>
                   <div class="an-strip" id="anStrip"></div>
+                </div>
+                <div id="anBubbleWrap" hidden>
+                  <div class="tool-row"><span class="vw-sec">Speech bubbles</span><span class="pm-spacer"></span><button class="mini" id="anBubbleAdd">Add a bubble on this frame</button></div>
+                  <div class="vw-note">Bubbles show while the animation plays, like the dolphin's own. Type \n for a new line. Frame numbers count the frames you kept.</div>
+                  <div class="vw-btns" id="anBubbles"></div>
+                </div>
+                <div class="tool-row" id="anWhenRow" hidden>
+                  <label title="The dolphin's mood on your Flipper">Plays when the dolphin is <select id="anMood"><option value="any">in any mood</option><option value="happy">happy</option><option value="okay">okay</option><option value="angry">angry</option></select></label>
+                  <label>from level <input type="number" id="anLvMin" min="1" max="30" value="1"></label>
+                  <label>to <input type="number" id="anLvMax" min="1" max="30" value="30"></label>
                 </div>
                 <div class="tool-row" id="anSaveRow" hidden>
                   <input id="anName" type="text" maxlength="40" spellcheck="false">
@@ -432,6 +562,12 @@
                   </div>
                   <div class="nfc-cap pm-mem"><span>Memory</span><div class="nfc-cap-bar"><i id="pmMemFill"></i></div><span id="pmMemText"></span></div>
                   <div class="vw-note" id="pmMemNote"></div>
+                  <div class="vw-sec">How it looks</div>
+                  <div class="pm-previews">
+                    <figure><div class="anim-lcd"><canvas id="pmPrevPass" width="128" height="64"></canvas></div><figcaption>Passport</figcaption></figure>
+                    <figure><div class="anim-lcd"><canvas id="pmPrevMenu" width="128" height="64"></canvas></div><figcaption>Main menu (list style)</figcaption></figure>
+                  </div>
+                  <div class="vw-note">A rough preview from the icons in this pack; dashed boxes keep your Flipper's own picture. The real screens may differ a little.</div>
                   <div class="vw-sec">Animations</div>
                   <div class="vw-btns" id="pmAnims"></div>
                   <div class="tool-row"><button class="mini" id="pmAddAnim">Add an animation</button></div>

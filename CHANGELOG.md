@@ -2,6 +2,26 @@
 
 Downloads for every version are on the [Releases](../../releases) page.
 
+## 1.13.0
+
+- **Health check** (On Flipper > Tools): free memory with a live graph, the lowest it dropped since the
+  last restart, battery and SD card. *Check my packs* shows how much memory every asset pack and the
+  dolphin folder need, their heaviest animations, and shrinks uncompressed frames (from old tools or
+  Workbench before 1.11) in place. It never touches the pack your Flipper is using.
+- **Studio**: speech bubbles on animations, like the dolphin's own; Line, Box, Circle and Text tools in the
+  frame editor, with fill, white ink and *All frames*; choose the mood and levels an animation plays at;
+  and a rough preview of a pack's passport and main menu before installing it.
+- **IR remote builder**: make one remote from buttons of any remote: the IR database, remotes on your
+  Flipper, learned from a real remote, or typed in. Rename, reorder and test each button, then save it to
+  the Flipper's Infrared app or to your PC.
+- **BadUSB scripts**: edit the scripts on your Flipper, subfolders included, with highlighting and a checker
+  that flags commands and keys the BadUSB app doesn't know, and pick the keyboard layout it uses.
+- **Passport**: change your Flipper's name (Momentum) with a preview, and jump to the passport pictures.
+- **Profiles**: save your Flipper's setup (Momentum settings, name, app list and optionally the apps) and
+  switch between setups. Apps are only removed if you tick that box.
+- **Record as MP4**: a setting in Tools makes the record button save a video instead of a GIF.
+- **Update all** now includes app updates from Flipper's catalog, built and installed one after another.
+
 ## 1.12.0
 
 - **Studio**: a new tab under On Flipper with everything for your Flipper's look in one place: Animation

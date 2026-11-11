@@ -273,6 +273,44 @@ def save_gif(frames, t_end, folder, framed=False):
     return p
 
 
+def save_mp4(frames, t_end, folder, framed=False, fps=30):
+    """Same frames as save_gif, as an H.264 video (sampled at a steady frame rate)."""
+    import subprocess
+    import anim
+    if not frames:
+        raise ValueError("No frames: the Flipper's screen didn't send anything.")
+    folder = Path(folder)
+    folder.mkdir(parents=True, exist_ok=True)
+    t0 = frames[0][0]
+    n = max(1, int((max(t_end, frames[-1][0] + .5) - t0) * fps))
+    first = _framed(*frames[0][1:]) if framed else _frame_image(*frames[0][1:])
+    w, h = first.size[0] // 2 * 2, first.size[1] // 2 * 2
+    p = folder / time.strftime("flipper_%Y-%m-%d_%H%M%S.mp4")
+    cmd = [anim._ffmpeg(), "-hide_banner", "-loglevel", "error", "-y", "-f", "rawvideo", "-pix_fmt", "rgb24",
+           "-s", f"{w}x{h}", "-r", str(fps), "-i", "-", "-c:v", "libx264", "-pix_fmt", "yuv420p", "-crf", "18",
+           "-movflags", "+faststart", str(p)]
+    proc = subprocess.Popen(cmd, stdin=subprocess.PIPE, stderr=subprocess.PIPE, **anim._NO_WINDOW)
+    cache, j = {}, 0
+    try:
+        for k in range(n):
+            t = t0 + k / fps
+            while j + 1 < len(frames) and frames[j + 1][0] <= t:
+                j += 1
+            key = (frames[j][1], frames[j][2])
+            if key not in cache:
+                img = (_framed(*key) if framed else _frame_image(*key)).convert("RGB").crop((0, 0, w, h))
+                cache = {key: img.tobytes()}
+            proc.stdin.write(cache[key])
+        proc.stdin.close()
+        err = proc.stderr.read().decode("utf-8", "replace")
+        if proc.wait(120) != 0:
+            raise ValueError(err.strip()[:200] or "the video converter failed")
+    finally:
+        if proc.poll() is None:
+            proc.kill()
+    return p
+
+
 # ---------------------------------------------------------------- API exposed to JS
 
 class Api:
@@ -387,6 +425,7 @@ class Api:
             "library_count": len(fb.load_library()),
             "auto_backup": s.get("auto_backup", True),
             "frame_shots": bool(s.get("frame_shots")),
+            "rec_mp4": bool(s.get("rec_mp4")),
             "auto_mirror": s.get("auto_mirror", True),
         }
 
@@ -1056,7 +1095,7 @@ class Api:
         self._lcd.start()
         return {"ok": True}
 
-    def anim_install(self, name, weight=3, target=""):
+    def anim_install(self, name, weight=3, target="", extra=None):
         """Momentum: into the 'Workbench' asset pack (pick it on the Flipper). Other firmware: /ext/dolphin
         plus an entry in its manifest (the original manifest is kept as manifest.txt.bak the first time)."""
         import tempfile
@@ -1066,6 +1105,11 @@ class Api:
         if not res:
             return {"error": "Make an animation first."}
         name = anim.safe_name(name)
+        extra = extra or {}
+        try:
+            anim.clean_bubbles(extra.get("bubbles"), len(res["frames"]))
+        except anim.AnimError as e:
+            return {"error": str(e)}
         momentum = (self._device.get("fw") or "").startswith("momentum")
         if target == "pack" and not momentum:
             return {"error": "Asset packs need Momentum firmware. Choose the dolphin folder instead."}
@@ -1074,7 +1118,7 @@ class Api:
         try:
             port = self._port()
             with tempfile.TemporaryDirectory(prefix="fw_anim_") as td:
-                folder = anim.write_folder(res, Path(td) / name)
+                folder = anim.write_folder(res, Path(td) / name, extra.get("bubbles"))
                 device.upload(port, fb.sdk_dirs(), [str(folder)], base)
                 man = f"{base}/manifest.txt"
                 old = None
@@ -1082,7 +1126,7 @@ class Api:
                     old = device.read_file(port, fb.sdk_dirs(), man).decode("utf-8", "replace")
                     if not momentum and not device.file_exists(port, fb.sdk_dirs(), man + ".bak"):
                         device.write_file(port, fb.sdk_dirs(), man + ".bak", old.encode("utf-8"))
-                new = anim.add_to_manifest(old, name, int(weight))
+                new = anim.add_to_manifest(old, name, int(weight), extra)
                 device.write_file(port, fb.sdk_dirs(), man, new.encode("utf-8"))
             made = fb.load_settings().get("anims_made") or []
             made = [m for m in made if m.get("name") != name] + [{"name": name, "base": base}]
@@ -1152,6 +1196,450 @@ class Api:
             return {"send_only": True, "quiet": True, "pack_done": {"name": pack["name"], "folders": [f.name for f in folders]}}
         return self._run_job("files", work)
 
+    # ------------------------------------------------ tools: profiles
+    MOMENTUM_SETTINGS = "/int/.momentum_settings.txt"
+
+    @property
+    def _pr_root(self):
+        return fb.ROOT / "profiles"
+
+    def _pr_dir(self, name):
+        stem = re.sub(r"[^\w\- ]+", "", name or "").strip()[:40]
+        if not stem:
+            raise fb.BuildError("Give the profile a name.")
+        return self._pr_root / stem
+
+    def profile_list(self):
+        out = []
+        if self._pr_root.is_dir():
+            for d in sorted(self._pr_root.iterdir()):
+                try:
+                    meta = json.loads((d / "profile.json").read_text(encoding="utf-8"))
+                    out.append({**meta, "name": d.name})
+                except (OSError, ValueError):
+                    continue
+        return {"profiles": out}
+
+    def profile_save(self, name, include_apps=False):
+        """Copy this Flipper's look and setup to the PC: Momentum settings, custom name, app list (and the apps)."""
+        try:
+            d = self._pr_dir(name)
+        except fb.BuildError as e:
+            return {"error": str(e)}
+
+        def work(job):
+            import shutil
+            import device
+            job.stage("send", "reading")
+            port, sdk = self._port(), fb.sdk_dirs()
+            tmp = d.with_name(d.name + ".new")
+            shutil.rmtree(tmp, ignore_errors=True)
+            tmp.mkdir(parents=True)
+            try:
+                def fn(mod, st):
+                    got = {}
+                    for remote, local in ((self.MOMENTUM_SETTINGS, "momentum_settings.txt"), (self.NAME_FILE, "name.settings")):
+                        if st.exist_file(remote):
+                            (tmp / local).write_bytes(bytes(st.read_file(remote)))
+                            got[local] = True
+                    apps = device._walk(st, "/ext/apps") if st.exist_dir("/ext/apps") else []
+                    return got, [[p, s] for p, s in apps if p.lower().endswith(".fap")]
+                got, apps = device.storage_call(port, sdk, fn, seconds=120)
+                if include_apps and apps:
+                    device.download(port, sdk, "/ext/apps", tmp / "files", progress=self._fprog("Copying your apps"))
+                pack = ""
+                if got.get("momentum_settings.txt"):
+                    m = re.search(r"^asset_pack:[ \t]*(.*?)\s*$", (tmp / "momentum_settings.txt").read_text("utf-8", "replace"), re.M)
+                    pack = m.group(1) if m else ""
+                meta = {"created": time.strftime("%Y-%m-%d %H:%M"), "device": self._device.get("name") or "",
+                        "fw": self._device.get("fw") or "", "pack": pack, "apps": apps, "has_apps": bool(include_apps and apps),
+                        "has_settings": bool(got.get("momentum_settings.txt")), "has_name": bool(got.get("name.settings"))}
+                (tmp / "profile.json").write_text(json.dumps(meta, indent=1), encoding="utf-8")
+                shutil.rmtree(d, ignore_errors=True)
+                tmp.rename(d)
+            except device.DeviceError as e:
+                shutil.rmtree(tmp, ignore_errors=True)
+                raise fb.BuildError(str(e))
+            job.log(f"OK Saved profile {d.name}")
+            return {"send_only": True, "quiet": True, "pr_done": {"saved": d.name}}
+        return self._run_job("files", work)
+
+    def profile_apply(self, name, remove_extra=False):
+        """Put a profile back on the Flipper. Apps are only removed when asked; then offer a restart."""
+        try:
+            d = self._pr_dir(name)
+            meta = json.loads((d / "profile.json").read_text(encoding="utf-8"))
+        except (fb.BuildError, OSError, ValueError):
+            return {"error": "That profile can't be read."}
+        if meta.get("has_settings") and not (self._device.get("fw") or "").startswith("momentum"):
+            return {"error": "This profile holds Momentum settings, and your Flipper isn't running Momentum."}
+
+        def work(job):
+            import device
+            job.stage("send", "applying")
+            port, sdk = self._port(), fb.sdk_dirs()
+            want = {p: s for p, s in meta.get("apps") or []}
+            files = d / "files"
+
+            def fn(mod, st):
+                done = {"settings": False, "name": False, "copied": 0, "removed": 0}
+                if meta.get("has_settings") and (d / "momentum_settings.txt").is_file():
+                    device._put(mod, st, self.MOMENTUM_SETTINGS, (d / "momentum_settings.txt").read_bytes())
+                    done["settings"] = True
+                if meta.get("has_name") and (d / "name.settings").is_file():
+                    device._put(mod, st, self.NAME_FILE, (d / "name.settings").read_bytes())
+                    done["name"] = True
+                elif st.exist_file(self.NAME_FILE):
+                    st.remove(self.NAME_FILE)
+                    done["name"] = True
+                have = dict(device._walk(st, "/ext/apps")) if st.exist_dir("/ext/apps") else {}
+                if meta.get("has_apps") and files.is_dir():
+                    todo = [p for p, s in want.items() if have.get(p) != s and (files / p[len("/ext/"):]).is_file()]
+                    for i, p in enumerate(todo):
+                        mod.FlipperStorageOperations(st).mkpath(p.rsplit("/", 1)[0])
+                        device._put(mod, st, p, (files / p[len("/ext/"):]).read_bytes())
+                        done["copied"] += 1
+                        self._fprog("Copying apps")(i + 1, len(todo), p)
+                if remove_extra and want:
+                    for p in [p for p in have if p.lower().endswith(".fap") and p not in want]:
+                        st.remove(p)
+                        done["removed"] += 1
+                return done
+            try:
+                done = device.storage_call(port, sdk, fn, seconds=900)
+            except device.DeviceError as e:
+                raise fb.BuildError(str(e))
+            job.log(f"OK Applied profile {d.name}: {done}")
+            return {"send_only": True, "quiet": True, "pr_done": {"applied": d.name, **done}}
+        return self._run_job("files", work)
+
+    def profile_delete(self, name):
+        import shutil
+        try:
+            shutil.rmtree(self._pr_dir(name))
+            return {"ok": True}
+        except (fb.BuildError, OSError) as e:
+            return {"error": str(e)}
+
+    # ------------------------------------------------ tools: BadUSB scripts
+    BU_DIR = "/ext/badusb"
+    BU_SETTINGS = "/ext/badusb/.badkb.settings"
+
+    def bu_list(self):
+        """Scripts in /ext/badusb, the keyboard layouts installed, and the one the BadUSB app uses."""
+        import device
+        try:
+            port, sdk = self._port(), fb.sdk_dirs()
+            scripts, layouts, layout = [], [], ""
+
+            def walk(mod, st):
+                # scripts usually live in subfolders (Demos/, Payloads/...); names are relative to /ext/badusb
+                if not st.exist_dir(self.BU_DIR):
+                    return []
+                out, todo = [], [""]
+                while todo:
+                    rel = todo.pop()
+                    for kind, name, _ in device._list(st, f"{self.BU_DIR}/{rel}".rstrip("/")):
+                        r = f"{rel}{name}"
+                        if kind == "D":
+                            if r.lower() != "assets":
+                                todo.append(r + "/")
+                        elif name.lower().endswith(".txt"):
+                            out.append(r)
+                return out
+            scripts = sorted(device.storage_call(port, sdk, walk, seconds=60), key=lambda n: (n.count("/"), n.lower()))
+            lay_dir = self.BU_DIR + "/assets/layouts"
+            if device.storage_call(port, sdk, lambda mod, st: st.exist_dir(lay_dir)):
+                layouts = sorted(e["name"] for e in device.list_dir(port, sdk, lay_dir) if e["name"].lower().endswith(".kl"))
+            has_settings = device.file_exists(port, sdk, self.BU_SETTINGS)
+            if has_settings:
+                m = re.search(r"^layout:\s*(.*?)\s*$", device.read_file(port, sdk, self.BU_SETTINGS).decode("utf-8", "replace"), re.M)
+                layout = m.group(1).rsplit("/", 1)[-1] if m else ""
+            return {"scripts": scripts, "layouts": layouts, "layout": layout, "has_settings": has_settings}
+        except (fb.BuildError, device.DeviceError) as e:
+            return {"error": str(e)}
+
+    def _bu_path(self, name):
+        """/ext/badusb/<name>.txt; name may hold subfolders ("Demos/x"). Only characters FAT forbids are replaced,
+        so names that bu_list returns (spaces, brackets...) read back unchanged; no '..' or empty parts."""
+        rel = (name or "").strip().replace("\\", "/")
+        if rel.lower().endswith(".txt"):
+            rel = rel[:-4]
+        parts = [re.sub(r'[<>:"|?*\x00-\x1f]+', "_", p).strip(" .")[:60] for p in rel.split("/")]
+        parts = [p for p in parts if p]
+        if not parts:
+            raise fb.BuildError("Give the script a name.")
+        if parts[0].lower() == "assets":
+            raise fb.BuildError("The assets folder holds keyboard layouts, not scripts.")
+        return f"{self.BU_DIR}/{'/'.join(parts)}.txt"
+
+    def bu_read(self, name):
+        import device
+        try:
+            return {"text": device.read_file(self._port(), fb.sdk_dirs(), self._bu_path(name)).decode("utf-8", "replace")}
+        except (fb.BuildError, device.DeviceError) as e:
+            return {"error": str(e)}
+
+    def bu_write(self, name, text, overwrite=False):
+        import device
+        try:
+            port, path = self._port(), self._bu_path(name)
+            if not overwrite and device.file_exists(port, fb.sdk_dirs(), path):
+                return {"exists": True, "path": path}
+            device.ensure_dir(port, fb.sdk_dirs(), path.rsplit("/", 1)[0])
+            device.write_file(port, fb.sdk_dirs(), path, (text or "").replace("\r\n", "\n").encode("utf-8"))
+            return {"ok": True, "path": path, "name": path[len(self.BU_DIR) + 1:]}
+        except (fb.BuildError, device.DeviceError) as e:
+            return {"error": str(e)}
+
+    def bu_set_layout(self, layout):
+        """Change only the layout line of the BadUSB app's own settings file (it must exist already)."""
+        import device
+        if not re.fullmatch(r"[\w\-.]+\.kl", layout or ""):
+            return {"error": "That isn't a keyboard layout file."}
+        try:
+            port, sdk = self._port(), fb.sdk_dirs()
+            if not device.file_exists(port, sdk, self.BU_SETTINGS):
+                return {"error": "Open the BadUSB app on your Flipper once first; it creates its settings then."}
+            text = device.read_file(port, sdk, self.BU_SETTINGS).decode("utf-8", "replace")
+            if not re.search(r"^layout:", text, re.M):
+                return {"error": "Your BadUSB settings file looks different than expected, so it was left alone."}
+            new = re.sub(r"^layout:.*$", f"layout: {self.BU_DIR}/assets/layouts/{layout}", text, count=1, flags=re.M)
+            device.write_file(port, sdk, self.BU_SETTINGS, new.encode("utf-8"))
+            return {"ok": True}
+        except (fb.BuildError, device.DeviceError) as e:
+            return {"error": str(e)}
+
+    # ------------------------------------------------ tools: passport (Momentum)
+    NAME_FILE = "/ext/dolphin/name.settings"
+
+    def passport_get(self):
+        import device
+        try:
+            port = self._port()
+            name = ""
+            if device.file_exists(port, fb.sdk_dirs(), self.NAME_FILE):
+                m = re.search(r"^Name:\s*(.*?)\s*$", device.read_file(port, fb.sdk_dirs(), self.NAME_FILE).decode("utf-8", "replace"), re.M)
+                name = m.group(1) if m else ""
+            return {"custom": name, "name": self._device.get("name") or "", "momentum": (self._device.get("fw") or "").startswith("momentum")}
+        except (fb.BuildError, device.DeviceError) as e:
+            return {"error": str(e)}
+
+    def passport_set(self, name):
+        """Momentum shows this name instead of the real one after a restart. Empty = the real name again."""
+        import device
+        if not (self._device.get("fw") or "").startswith("momentum"):
+            return {"error": "Changing the name needs Momentum firmware."}
+        name = (name or "").strip()
+        if name and not re.fullmatch(r"[A-Za-z0-9]{1,8}", name):
+            return {"error": "Use up to 8 letters and numbers, like Momentum allows."}
+        try:
+            port = self._port()
+            if name:
+                device.write_file(port, fb.sdk_dirs(), self.NAME_FILE, f"Filetype: Flipper Name File\nVersion: 1\nName: {name}\n".encode())
+            else:
+                device.remove(port, fb.sdk_dirs(), self.NAME_FILE)
+            return {"ok": True}
+        except (fb.BuildError, device.DeviceError) as e:
+            return {"error": str(e)}
+
+    def flipper_restart(self):
+        """Restart the Flipper (only ever on the user's click)."""
+        import device
+        try:
+            device.cli_run(self._port(), fb.sdk_dirs(), "power reboot", lambda t: None, limit=4)
+        except (fb.BuildError, device.DeviceError):
+            pass                        # the connection drops as it restarts
+        return {"ok": True}
+
+    # ------------------------------------------------ tools: IR remote builder
+    def irb_load(self, source, path):
+        """Buttons from an IR database remote or a .ir file on the Flipper."""
+        import capture
+        import device
+        import irbuilder
+        import irdb
+        try:
+            if source == "irdb":
+                text = irdb.fetch(path)
+            elif source == "flipper" and re.fullmatch(r"/ext/infrared/[^/]+\.ir", path or "", re.I):
+                text = device.read_file(self._port(), fb.sdk_dirs(), path).decode("utf-8", "replace")
+            else:
+                return {"error": "Unknown remote."}
+        except (fb.BuildError, device.DeviceError, ValueError) as e:
+            return {"error": str(e)}
+        except Exception as e:  # noqa: BLE001
+            return {"error": f"Couldn't read it: {e}"}
+        sig = capture.parse(path.rsplit("/", 1)[-1], text, path).get("signals") or []
+        buttons = [b for b in map(irbuilder.from_fields, sig) if b]
+        return {"buttons": buttons, "skipped": len(sig) - len(buttons)}
+
+    def irb_test(self, button):
+        import irbuilder
+        try:
+            return self.ir_send(irbuilder.tx(button))
+        except irbuilder.IrError as e:
+            return {"error": str(e)}
+
+    def irb_learn(self, on):
+        """Listen with `ir rx` and send each new signal to the page, until stopped (90 s at most)."""
+        import device
+        import irbuilder
+        if not on:
+            self._irl_stop = True
+            return {"ok": True}
+        if getattr(self, "_irl_thread", None) and self._irl_thread.is_alive():
+            return {"ok": True}
+        try:
+            port = self._port()
+        except fb.BuildError as e:
+            return {"error": str(e)}
+        self._irl_stop = False
+        rx = irbuilder.RxParser()
+
+        def run():
+            ended = "stopped"
+            try:
+                ended = device.cli_run(port, fb.sdk_dirs(), "ir rx", lambda t: [self._emit("irlearn", signal=s) for s in rx.feed(t)],
+                                       should_stop=lambda: self._irl_stop, limit=90)
+            except device.DeviceError as e:
+                self._emit("irlearn", error=str(e))
+            self._emit("irlearn", done=ended)
+        self._irl_thread = threading.Thread(target=run, daemon=True, name="ir-learn")
+        self._irl_thread.start()
+        return {"ok": True}
+
+    def irb_save(self, name, buttons, overwrite=False):
+        import device
+        import irbuilder
+        stem = re.sub(r"[^\w\-]+", "_", (name or "").strip()).strip("_")[:40]
+        if not stem:
+            return {"error": "Give the remote a name."}
+        if not buttons:
+            return {"error": "Add at least one button."}
+        try:
+            text = irbuilder.ir_text(buttons)
+            port, path = self._port(), f"/ext/infrared/{stem}.ir"
+            if not overwrite and device.file_exists(port, fb.sdk_dirs(), path):
+                return {"exists": True, "path": path}
+            device.ensure_dir(port, fb.sdk_dirs(), "/ext/infrared")
+            device.write_file(port, fb.sdk_dirs(), path, text.encode("utf-8"))
+            return {"ok": True, "path": path}
+        except irbuilder.IrError as e:
+            return {"error": str(e)}
+        except (fb.BuildError, device.DeviceError) as e:
+            return {"error": str(e)}
+
+    def irb_export(self, name, buttons):
+        import webview
+        import irbuilder
+        try:
+            text = irbuilder.ir_text(buttons)
+        except irbuilder.IrError as e:
+            return {"error": str(e)}
+        fname = (re.sub(r"[^\w\-]+", "_", (name or "Remote").strip()).strip("_") or "Remote") + ".ir"
+        try:
+            res = self._window.create_file_dialog(webview.FileDialog.SAVE, save_filename=fname, file_types=("Flipper IR (*.ir)", "All files (*.*)"))
+        except AttributeError:
+            res = self._window.create_file_dialog(webview.SAVE_DIALOG, save_filename=fname)
+        if not res:
+            return {"cancelled": True}
+        out = Path(res[0] if isinstance(res, (list, tuple)) else res)
+        out.write_text(text, encoding="utf-8", newline="\n")
+        return {"ok": True, "path": str(out)}
+
+    # ------------------------------------------------ tools: health check
+    def health_snapshot(self):
+        """Memory, battery, SD card and uptime, read in one short CLI visit."""
+        import device
+        import health
+        try:
+            port = self._port()
+
+            def fn(mod, st):
+                out = {}
+                for cmd in health.COMMANDS:
+                    st.send_and_wait_eol(cmd + "\r")
+                    out[cmd] = st.read.until(st.CLI_PROMPT).decode("utf-8", "replace")
+                return out
+            return health.parse(device.storage_call(port, fb.sdk_dirs(), fn, seconds=20))
+        except (fb.BuildError, device.DeviceError) as e:
+            return {"error": str(e)}
+
+    def _health_scan(self, st, root):
+        import device
+        files = device._walk(st, root)
+        metas = {}
+        for p, _ in files:
+            if p.endswith("/meta.txt") and "/Icons/" not in p[len(root):]:
+                metas[p[:-len("/meta.txt")]] = bytes(st.read_file(p)).decode("utf-8", "replace")
+        return files, metas
+
+    def health_packs(self):
+        """Every asset pack on the SD card plus the dolphin folder, with the memory each one needs."""
+        import device
+        import health
+        try:
+            port = self._port()
+            active = self._pm_state(port)["active"] if (self._device.get("fw") or "").startswith("momentum") else ""
+
+            def fn(mod, st):
+                roots = []
+                if st.exist_dir("/ext/asset_packs"):
+                    roots += [(n, f"/ext/asset_packs/{n}") for k, n, _ in device._list(st, "/ext/asset_packs") if k == "D"]
+                if st.exist_dir("/ext/dolphin"):
+                    roots.append(("Default (dolphin folder)", "/ext/dolphin"))
+                return [health.pack_report(name, root, *self._health_scan(st, root)) for name, root in roots]
+            packs = device.storage_call(port, fb.sdk_dirs(), fn, seconds=180)
+        except (fb.BuildError, device.DeviceError) as e:
+            return {"error": str(e)}
+        for p in packs:
+            p["in_use"] = p["path"] == "/ext/dolphin" if not active else p["path"].lower() == f"/ext/asset_packs/{active}".lower()
+            p["uncompressed"] = len(p["uncompressed"])
+        return {"packs": packs, "active": active}
+
+    def health_shrink(self, root):
+        """Compress the uncompressed frames in one pack, in place. Never the pack in use."""
+        import device
+        if not (root == "/ext/dolphin" or re.fullmatch(r"/ext/asset_packs/[^/]+", root or "")):
+            return {"error": "Workbench can only shrink asset packs and the dolphin folder."}
+        try:
+            port = self._port()
+            active = self._pm_state(port)["active"] if (self._device.get("fw") or "").startswith("momentum") else ""
+        except (fb.BuildError, device.DeviceError) as e:
+            return {"error": str(e)}
+        in_use = root == "/ext/dolphin" if not active else root.lower() == f"/ext/asset_packs/{active}".lower()
+        if in_use:
+            return {"error": "That's the set your Flipper is using right now. Pick another asset pack (or Default) in "
+                             "Momentum Settings > Interface > Graphics > Asset pack, then shrink it."}
+
+        def work(job):
+            import anim
+            import health
+            job.stage("send", "shrinking")
+            prog = self._fprog("Shrinking frames")
+            done = {"n": 0, "saved": 0}
+
+            def fn(mod, st):
+                files, metas = self._health_scan(st, root)
+                todo = health.pack_report("", root, files, metas)["uncompressed"]
+                for i, (p, w, h) in enumerate(todo):
+                    data = bytes(st.read_file(p))
+                    if data[:1] == b"\x00" and len(data) == health.raw_size(w, h):
+                        new = anim.compress_raw(data[1:])
+                        if len(new) < len(data):
+                            device._put(mod, st, p, new)
+                            done["n"] += 1
+                            done["saved"] += len(data) - len(new)
+                    prog(i + 1, len(todo), p)
+            try:
+                device.storage_call(port, fb.sdk_dirs(), fn, seconds=900)
+            except device.DeviceError as e:
+                raise fb.BuildError(str(e))
+            job.log(f"OK Shrank {done['n']} frames in {root}, {done['saved'] // 1024} KB smaller")
+            return {"send_only": True, "quiet": True, "hc_done": {"frames": done["n"], "saved": done["saved"]}}
+        return self._run_job("files", work)
+
     # ------------------------------------------------ tools: make and import asset packs
     PM_REMOTE = "/ext/asset_packs"
 
@@ -1199,13 +1687,17 @@ class Api:
             return {"cancelled": True}
         return self._pm_call(lambda: {"ok": True, **packmaker.import_path(src, self._pm_root)})
 
-    def pm_add_anim(self, pack, name, weight=3):
+    def pm_add_anim(self, pack, name, weight=3, extra=None):
         """Add the picture currently in the Animation maker to a pack."""
+        import anim
         import packmaker
         res = getattr(self, "_anim_res", None)
         if not res:
             return {"error": "Make an animation first."}
-        return self._pm_call(lambda: {"ok": True, "name": packmaker.add_anim(self._pm_root, pack, name, res, int(weight))})
+        try:
+            return self._pm_call(lambda: {"ok": True, "name": packmaker.add_anim(self._pm_root, pack, name, res, int(weight), extra)})
+        except anim.AnimError as e:
+            return {"error": str(e)}
 
     def pm_remove_anim(self, pack, name):
         import packmaker
@@ -2254,12 +2746,19 @@ class Api:
             return {"cancelled": True}
         t_end = min(time.time(), self._rec_t0 + self.REC_MAX)
         rec = [r for r in rec if r[0] <= t_end]
+        settings = fb.load_settings()
+        mp4 = bool(settings.get("rec_mp4"))
         try:
-            p = save_gif(rec, t_end, fb.ROOT / "recordings", framed=bool(fb.load_settings().get("frame_shots")))
+            saver = save_mp4 if mp4 else save_gif
+            p = saver(rec, t_end, fb.ROOT / "recordings", framed=bool(settings.get("frame_shots")))
         except Exception as e:  # noqa: BLE001
-            return {"error": f"Couldn't save the GIF: {e}"}
+            return {"error": f"Couldn't save the {'video' if mp4 else 'GIF'}: {e}"}
         _reveal(p)
-        return {"path": str(p), "frames": len(rec), "seconds": round(t_end - self._rec_t0, 1)}
+        return {"path": str(p), "frames": len(rec), "seconds": round(t_end - self._rec_t0, 1), "mp4": mp4}
+
+    def set_rec_mp4(self, on):
+        fb.save_settings(rec_mp4=bool(on))
+        return {"ok": True}
 
     def set_fullscreen(self, on):
         """Real full screen for the mirrored Flipper screen (the page shows only the screen meanwhile)."""

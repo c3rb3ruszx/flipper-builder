@@ -141,9 +141,12 @@ def manifest_text(entries):
     return MANIFEST_HEAD + "\n" + "\n\n".join(blocks) + "\n"
 
 
-def _new_entry(name, weight=3):
-    return {"Name": name, "Min butthurt": "0", "Max butthurt": "14", "Min level": "1", "Max level": "30",
-            "Weight": str(int(weight))}
+def _new_entry(name, weight=3, extra=None):
+    e = {}
+    for line in anim.manifest_entry(name, int(weight), extra).splitlines():
+        k, _, v = line.partition(": ")
+        e[k] = v
+    return e
 
 
 def _safe_rel(name):
@@ -504,14 +507,16 @@ def _write_manifest(d, entries):
         shutil.rmtree(a)                # no manifest = the Flipper falls back to its normal animations
 
 
-def add_anim(root, pack, name, result, weight=3):
+def add_anim(root, pack, name, result, weight=3, extra=None):
     d = pack_dir(root, pack)
     name = anim.safe_name(name)
+    bubbles = (extra or {}).get("bubbles")
+    anim.clean_bubbles(bubbles, len(result["frames"]))        # complain before touching anything
     target = d / "Anims" / name
     if target.exists():
         shutil.rmtree(target)
-    anim.write_folder(result, target)
-    entries = [e for e in _read_manifest(d) if e["Name"] != name] + [_new_entry(name, weight)]
+    anim.write_folder(result, target, bubbles)
+    entries = [e for e in _read_manifest(d) if e["Name"] != name] + [_new_entry(name, weight, extra)]
     _write_manifest(d, entries)
     return name
 

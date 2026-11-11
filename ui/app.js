@@ -347,6 +347,21 @@ function mockApi() {
       return { nfc: "Filetype: Flipper NFC device", tag, uid: "04 A1 B2 C3 D4 E5 86", bytes, capacity: cap,
         does: items.map((it) => ({ url: `Opens ${it.url}`, wifi: `Offers to join the Wi-Fi network "${it.ssid}"`, text: "Shows the text" }[it.kind] || `Does a ${it.kind} thing`)) }; },
     nfc_save: async () => ({ ok: true, path: "/ext/nfc/Tag.nfc" }), nfc_export: async () => ({ ok: true }),
+    profile_list: async () => ({ profiles: [{ name: "Daily", created: "2026-11-11 21:40", pack: "WatchDogs", apps: [["/ext/apps/Tools/a.fap", 1]], has_apps: false, has_name: false, has_settings: true }] }),
+    profile_save: async () => { later(500, [{ type: "finished", ok: true, quiet: true, send_only: true, pr_done: { saved: "Demo" } }]); return { ok: true }; },
+    profile_apply: async () => { later(500, [{ type: "finished", ok: true, quiet: true, send_only: true, pr_done: { applied: "Daily", copied: 0, removed: 0 } }]); return { ok: true }; },
+    profile_delete: async () => ({ ok: true }), set_rec_mp4: async () => ({ ok: true }),
+    bu_list: async () => ({ scripts: ["hello.txt"], layouts: ["en-US.kl", "de-DE.kl", "fr-FR.kl"], layout: "en-US.kl", has_settings: true }),
+    bu_read: async () => ({ text: "REM Opens a text editor\nDELAY 500\nGUI r\nDELAY 300\nSTRING notepad\nENTER\nDELAY 800\nSTRINGLN Hello from my Flipper\nREPEAT 2\nDELAY fast\nBANANA\n" }),
+    bu_write: async (n) => ({ ok: true, path: "/ext/badusb/" + n + ".txt", name: n + ".txt" }), bu_set_layout: async () => ({ ok: true }),
+    passport_get: async () => ({ custom: "", name: "C3rb3rus", momentum: true }), passport_set: async () => ({ ok: true }), flipper_restart: async () => ({ ok: true }),
+    irb_load: async () => ({ buttons: [{ name: "Power", type: "parsed", protocol: "Samsung32", address: "07 00 00 00", command: "02 00 00 00" }, { name: "Vol_up", type: "parsed", protocol: "Samsung32", address: "07 00 00 00", command: "07 00 00 00" }, { name: "Input", type: "raw", frequency: "38000", duty_cycle: "0.330000", data: "9000 4500 560 560" }], skipped: 0 }),
+    irb_test: async () => ({ ok: true }), irb_save: async () => ({ ok: true, path: "/ext/infrared/Living_Room.ir" }), irb_export: async () => ({ ok: true }),
+    irb_learn: async (on) => { if (on) { later(900, [{ type: "irlearn", signal: { name: "", type: "parsed", protocol: "NEC", address: "04 00 00 00", command: "08 00 00 00" } }]); } else later(100, [{ type: "irlearn", done: "stopped" }]); return { ok: true }; },
+    ir_files: async () => ({ files: ["/ext/infrared/TV.ir", "/ext/infrared/Soundbar.ir"] }),
+    health_snapshot: async () => ({ heap: { free: 98000 + Math.round(Math.random() * 20000), total: 189648, min: 25232, block: 73600 }, power: { level: 87, state: "discharging", health: "100", temp: "27" }, sd: { total_kib: 7737344, free_kib: 5318592, type: "FAT32" }, uptime: "1h4m", app: null }),
+    health_packs: async () => ({ active: "WatchDogs", packs: [{ name: "WatchDogs", path: "/ext/asset_packs/WatchDogs", in_use: true, total: 61000, level: "warn", anims: 9, icons: 12, fonts: 0, heaviest: [{ name: "WD_Hack", mem: 52000 }], uncompressed: 0 }, { name: "Workbench", path: "/ext/asset_packs/Workbench", in_use: false, total: 63000, level: "warn", anims: 1, icons: 0, fonts: 0, heaviest: [{ name: "my_gif", mem: 61500 }], uncompressed: 60 }] }),
+    health_shrink: async () => { later(600, [{ type: "finished", ok: true, quiet: true, send_only: true, hc_done: { frames: 60, saved: 52000 } }]); return { ok: true }; },
     pm_slots: async () => ({ slots: [["Passport/passport_128x64", 128, 64, false], ["Passport/passport_happy_46x49", 46, 49, false], ["Passport/passport_okay_46x49", 46, 49, false], ["Passport/passport_bad_46x49", 46, 49, false], ["MainMenu/NFC_14", 14, 14, true]].map(([path, w, h, animated]) => ({ path, w, h, animated })), fonts: ["Primary", "Secondary", "Keyboard", "BigNumbers", "BatteryPercent"] }),
     pm_list: async () => ({ packs: MOCKPACKS.map((p) => ({ name: p.name, anims: p.animations.length, icons: p.iconList.length, fonts: 0, size: 18400, memory: p.memory })) }),
     pm_detail: async (n) => MOCKPACKS.find((p) => p.name === n), pm_check: async () => ({ ok: true, exists: false }),
@@ -1047,9 +1062,10 @@ function renderFlipper() {
     Object.keys(counts).sort().map((c) => `<button class="fchip ${FL.filter === c ? "on" : ""}" data-c="${esc(c)}">${esc(c)}<small>${counts[c]}</small></button>`).join("");
   $$("#flFilter .fchip").forEach((b) => (b.onclick = () => { FL.filter = b.dataset.c; renderFlipper(); }));
   const updates = FL.apps.map((a) => [a, flUpdate(a)]).filter(([, l]) => l);
-  $("#flUpdateAll").hidden = !updates.length;
-  $("#flUpdateLabel").textContent = `Update ${updates.length}`;
-  $("#flUpdateAll").onclick = () => flDoUpdate(updates);
+  const catUps = FL.apps.filter((a) => !flUpdate(a)).map((a) => [a, catUpdate(a)]).filter(([, c]) => c);
+  $("#flUpdateAll").hidden = !(updates.length + catUps.length);
+  $("#flUpdateLabel").textContent = `Update ${updates.length + catUps.length}`;
+  $("#flUpdateAll").onclick = () => flUpdateAll(updates, catUps);
   const q = $("#flSearch").value.trim().toLowerCase();
   const shown = FL.apps.filter((a) => (FL.filter === "All" || a.category === FL.filter) &&
     (!q || (a.file + " " + a.category + " " + ((a.meta && a.meta.name) || "")).toLowerCase().includes(q)))
@@ -1221,10 +1237,10 @@ async function recStop() {
   if (!REC.on) return;
   REC.on = false; clearInterval(REC.timer);
   $("#recBtn").classList.remove("on"); $("#recBtn").title = "Record the Flipper's screen as a GIF (up to 60 s)";
-  toast("Saving GIF...");
+  toast(S.recMp4 ? "Saving the video..." : "Saving GIF...");
   const r = await api.record_stop(true);
   if (r.error) toast(r.error);
-  else if (r.path) toast(`GIF saved (${r.seconds}s)`);
+  else if (r.path) toast(`${r.mp4 ? "Video" : "GIF"} saved (${r.seconds}s)`);
 }
 function screenshot() {
   if (!MIR.frame) return;
@@ -1254,6 +1270,7 @@ function setSub(name) {
   $("#subApps").hidden = name !== "apps"; $("#subFiles").hidden = name !== "files"; $("#subBackups").hidden = name !== "backups";
   $("#subCli").hidden = name !== "cli";
   $("#subTools").hidden = name !== "tools"; $("#subStudio").hidden = name !== "studio";
+  if (name !== "tools") clearTimeout(HC.timer);
   if (name === "tools") toolsShow();
   if (name === "studio") studioShow();
   if (name === "files") loadFiles(FM.path);
@@ -1701,6 +1718,7 @@ async function fwReady(info) {
 const TL = { music: null, audio: null, anim: null, animTimer: null };
 function toolsShow() {
   renderIcons($("#toolsBody"));
+  hcTick();
   syRender();
 }
 function studioShow() {
@@ -1708,6 +1726,262 @@ function studioShow() {
   animListMade();
   if ($('.tool[data-tool="packs"]').open) packsLoad();
   if ($('.tool[data-tool="mypacks"]').open) pmLoad();
+}
+/* profiles */
+async function prRender() {
+  const r = await api.profile_list(), box = $("#prList"); box.innerHTML = "";
+  if (!r.profiles.length) { box.innerHTML = `<div class="vw-note">No profiles yet.</div>`; return; }
+  r.profiles.forEach((p) => {
+    const row = document.createElement("div"); row.className = "vw-btn";
+    row.innerHTML = `<b>${esc(p.name)}</b><span>${esc(p.created)} · ${p.pack ? "pack " + esc(p.pack) : "default look"} · ${(p.apps || []).length} app${(p.apps || []).length === 1 ? "" : "s"}${p.has_apps ? " (copied)" : ""}</span>`;
+    const ap = document.createElement("button"); ap.className = "mini primary"; ap.textContent = "Apply";
+    ap.onclick = async () => {
+      if (!needDevice()) return;
+      const ok = await confirmDialog(`Apply ${esc(p.name)}?`, `Your Flipper's Momentum settings${p.has_name ? ", name" : ""}${p.has_apps ? " and missing apps" : ""} are set to this profile. Then it needs a restart.` +
+        (p.has_apps ? `<br><br><label class="chk"><input type="checkbox" id="prExtra"> Also remove apps that aren't in this profile</label>` : ""), "Apply");
+      if (!ok) return;
+      const extra = !!(document.getElementById("prExtra") && document.getElementById("prExtra").checked);
+      startJob("files", () => api.profile_apply(p.name, extra));
+    };
+    const rm = document.createElement("button"); rm.className = "mini"; rm.textContent = "Delete";
+    rm.onclick = async () => { if (!(await confirmDialog(`Delete ${esc(p.name)}?`, "Only the copy on this PC is deleted. Your Flipper isn't touched.", "Delete"))) return; await api.profile_delete(p.name); prRender(); };
+    row.append(ap, rm); box.appendChild(row);
+  });
+}
+async function prAfter(e) {
+  if (e.saved) { toast(`Profile ${e.saved} saved`); prRender(); return; }
+  toast(`Applied ${e.applied}${e.copied ? `, ${e.copied} apps copied` : ""}${e.removed ? `, ${e.removed} removed` : ""}`);
+  if (await confirmDialog("Restart your Flipper now?", "Your Flipper picks up the new settings when it restarts.", "Restart")) { await api.flipper_restart(); toast("Restarting your Flipper"); }
+}
+/* app updates from Flipper's catalog, one build at a time */
+function catNext() {
+  if (!S.catQueue || !S.catQueue.length || S.busy) return;
+  const [app, c] = S.catQueue.shift();
+  toast(`Updating ${(app.meta && app.meta.name) || app.file} (${S.catQueue.length} more after this)`);
+  setTab("build"); $("#url").value = c.url; renderPreview(); setAfter("install"); build();
+}
+async function flUpdateAll(libPairs, catPairs) {
+  if (S.busy) return;
+  const names = [...libPairs, ...catPairs].map(([a]) => (a.meta && a.meta.name) || prettyFile(a.file));
+  if (!(await confirmDialog(`Update ${names.length} app${names.length === 1 ? "" : "s"}?`, `${esc(names.join(", "))}.` +
+    (catPairs.length ? `<br><br>${catPairs.length} come from Flipper's catalog: each is built for your firmware and installed, one after another.` : ""), "Update all"))) return;
+  S.catQueue = catPairs.slice();
+  if (libPairs.length) startJob("install", () => api.flipper_update(libPairs.map(([a, lib]) => [a.path, lib.file])));
+  else catNext();
+}
+/* BadUSB editor: highlight + check against the firmware's own command and key names */
+const BU_CMDS = new Set("REM ID BT_ID BLE_ID DELAY STRING STRINGLN DEFAULT_DELAY DEFAULTDELAY STRINGDELAY STRING_DELAY DEFAULT_STRING_DELAY DEFAULTSTRINGDELAY REPEAT SYSRQ ALTCHAR ALTSTRING ALTCODE HOLD RELEASE WAIT_FOR_BUTTON_PRESS MEDIA GLOBE MOUSEMOVE MOUSE_MOVE MOUSESCROLL MOUSE_SCROLL".split(" "));
+const BU_KEYS = new Set("CTRL CONTROL SHIFT ALT GUI WINDOWS DOWNARROW DOWN LEFTARROW LEFT RIGHTARROW RIGHT UPARROW UP ENTER BREAK PAUSE CAPSLOCK DELETE BACKSPACE END ESC ESCAPE HOME INSERT NUMLOCK PAGEUP PAGEDOWN PRINTSCREEN SCROLLLOCK SPACE TAB MENU APP F1 F2 F3 F4 F5 F6 F7 F8 F9 F10 F11 F12 F13 F14 F15 F16 F17 F18 F19 F20 F21 F22 F23 F24 POWER REBOOT SLEEP LOGOFF EXIT BACK FORWARD REFRESH SNAPSHOT PLAY PLAY_PAUSE NEXT_TRACK PREV_TRACK STOP EJECT MUTE VOLUME_UP VOLUME_DOWN FN BRIGHT_UP BRIGHT_DOWN LEFTCLICK LEFT_CLICK RIGHTCLICK RIGHT_CLICK MIDDLECLICK MIDDLE_CLICK WHEELCLICK WHEEL_CLICK".split(" "));
+const BU_NUM = new Set(["DELAY", "DEFAULT_DELAY", "DEFAULTDELAY", "STRINGDELAY", "STRING_DELAY", "DEFAULT_STRING_DELAY", "DEFAULTSTRINGDELAY", "REPEAT", "ALTCHAR", "MOUSESCROLL", "MOUSE_SCROLL"]);
+function buCheck(line, n, prevReal) {
+  const t = line.trim(); if (!t) return null;
+  const [cmd, ...rest] = t.split(/\s+/), arg = t.slice(cmd.length).trim(), up = cmd.toUpperCase();
+  if (up === "REM") return null;
+  if (BU_CMDS.has(up)) {
+    if ((up === "STRING" || up === "STRINGLN" || up === "ALTSTRING" || up === "ALTCODE" || up === "BT_ID" || up === "BLE_ID") && !arg) return `${up} needs something after it.`;
+    if (BU_NUM.has(up) && !/^-?\d+$/.test(arg)) return `${up} needs a number, like ${up} 500.`;
+    if (up === "REPEAT" && !prevReal) return "REPEAT has nothing before it to repeat.";
+    if (up === "ID" && !/^[0-9A-Fa-f]{4}:[0-9A-Fa-f]{4}(\s|$)/.test(arg)) return "ID looks like ID 1234:abcd Maker:Product.";
+    if ((up === "HOLD" || up === "RELEASE") && !(BU_KEYS.has(arg.toUpperCase()) || arg.length === 1)) return `${up} needs one key, like ${up} SHIFT.`;
+    if ((up === "MOUSEMOVE" || up === "MOUSE_MOVE") && !/^-?\d+\s+-?\d+$/.test(arg)) return "MOUSEMOVE needs two numbers: x and y.";
+    if (up === "WAIT_FOR_BUTTON_PRESS" && arg) return "WAIT_FOR_BUTTON_PRESS takes nothing after it.";
+    return null;
+  }
+  const bad = t.split(/[\s-]+/).filter((k) => !(BU_KEYS.has(k.toUpperCase()) || k.length === 1));
+  return bad.length ? `"${bad[0]}" isn't a command or key the BadUSB app knows.` : null;
+}
+function buRender() {
+  const text = $("#buText").value, lines = text.split("\n"), probs = [];
+  let prevReal = false;
+  const html = lines.map((ln, i) => {
+    const err = buCheck(ln, i + 1, prevReal); if (err) probs.push([i + 1, err]);
+    const t = ln.trim(); if (t && !/^REM\b/i.test(t)) prevReal = true;
+    const m = ln.match(/^(\s*)(\S+)(.*)$/); let h;
+    if (!m) h = esc(ln);
+    else if (/^REM$/i.test(m[2])) h = `<span class="c">${esc(ln)}</span>`;
+    else {
+      const up = m[2].toUpperCase(), rest = m[3];
+      const head = BU_CMDS.has(up) || BU_KEYS.has(up) ? `<span class="k">${esc(m[2])}</span>` : esc(m[2]);
+      const tail = /^STRING/.test(up) || up === "ALTSTRING" || up === "ALTCODE" ? `<span class="s">${esc(rest)}</span>` : esc(rest).replace(/\b(\d+)\b/g, '<span class="n">$1</span>');
+      h = m[1] + head + tail;
+    }
+    return err ? `<span class="bu-bad">${h || " "}</span>` : h;
+  }).join("\n");
+  $("#buHl").innerHTML = html + "\n";
+  $("#buProblems").innerHTML = probs.length ? probs.slice(0, 20).map(([n, e]) => `<div>Line ${n}: ${esc(e)}</div>`).join("") + (probs.length > 20 ? `<div>and ${probs.length - 20} more</div>` : "") : text.trim() ? `<div class="ok">No problems found.</div>` : "";
+}
+async function buLoadList(keep) {
+  if (!needDevice()) return;
+  const r = await api.bu_list(); if (r.error) { toast(r.error); return; }
+  $("#buList").innerHTML = `<option value="">New script</option>` + r.scripts.map((n) => `<option${n === keep ? " selected" : ""}>${esc(n)}</option>`).join("");
+  $("#buLayout").innerHTML = r.layouts.map((l) => `<option${l === r.layout ? " selected" : ""}>${esc(l)}</option>`).join("") || `<option value="">No layouts found</option>`;
+  $("#buLayout").disabled = !r.has_settings || !r.layouts.length;
+  $("#buLayoutNote").textContent = r.has_settings ? "" : "Open the BadUSB app on your Flipper once to choose a layout here.";
+}
+async function buSave(overwrite) {
+  if (!needDevice()) return;
+  const name = $("#buName").value || $("#buList").value;
+  const r = await api.bu_write(name, $("#buText").value, !!overwrite);
+  if (r.exists) { if (await confirmDialog("Replace the script?", `<code>${esc(r.path)}</code> already exists. Replace it?`, "Replace")) buSave(true); return; }
+  if (r.error) { toast(r.error); return; }
+  toast(`Saved as ${r.path}`); buLoadList(r.name); $("#buName").value = r.name.replace(/\.txt$/i, "");
+}
+/* passport */
+async function ppDraw(name) {
+  await document.fonts.load("8px Silkscreen");
+  const cv = $("#ppCanvas"), ctx = cv.getContext("2d"), img = ctx.createImageData(128, 64);
+  const set = (x, y) => { if (x >= 0 && x < 128 && y >= 0 && y < 64) img.data[(y * 128 + x) * 4 + 3] = 255; };
+  for (let x = 0; x < 128; x += 2) { set(x, 0); set(x, 63); } for (let y = 0; y < 64; y += 2) { set(0, y); set(127, y); }
+  for (let x = 11; x < 57; x += 2) { set(x, 2); set(x, 50); } for (let y = 2; y < 51; y += 2) { set(11, y); set(56, y); }
+  [[name || "Flipper", 3], ["Mood: Happy", 15], ["Level: 1", 27]].forEach(([t, y]) => textPixels(t, 59, y, 8).forEach((q) => set(q % 128, q >> 7)));
+  ctx.putImageData(img, 0, 0);
+}
+async function ppLoad() {
+  if (!S.device.connected) { ppDraw(""); return; }
+  const r = await api.passport_get(); if (r.error) { $("#ppNote").textContent = r.error; return; }
+  $("#ppName").value = r.custom; ppDraw(r.custom || r.name);
+  if (!r.momentum) $("#ppNote").textContent = "Changing the name needs Momentum firmware.";
+}
+async function ppSave(name) {
+  if (!needDevice()) return;
+  const r = await api.passport_set(name); if (r.error) { toast(r.error); return; }
+  if (await confirmDialog("Restart your Flipper now?", "The new name shows after a restart. Restart now?", "Restart")) { await api.flipper_restart(); toast("Restarting your Flipper"); }
+  else toast("Saved. It shows after your Flipper's next restart.");
+}
+/* IR remote builder */
+const IRB = { buttons: [], pick: [], learning: false };
+const IRB_PROTOS = ["NEC", "NECext", "NEC42", "NEC42ext", "Samsung32", "RC6", "RC5", "RC5X", "SIRC", "SIRC15", "SIRC20", "Kaseikyo", "RCA", "Pioneer"];
+const irbLe = (v) => "0x" + (v || "").split(" ").reverse().join("").replace(/^0+(?=.)/, "");
+const irbDetail = (b) => (b.type === "raw" ? `raw · ${b.data.split(" ").length} timings` : `${b.protocol} · ${irbLe(b.address)} · ${irbLe(b.command)}`);
+function irbRender() {
+  const pad = $("#irbPad"); pad.innerHTML = "";
+  if (!IRB.buttons.length) { pad.innerHTML = `<div class="vw-note">No buttons yet. Add some below: from the IR database, from remotes on your Flipper, by learning them from a real remote, or by typing the codes.</div>`; return; }
+  IRB.buttons.forEach((b, i) => {
+    const t = document.createElement("div"); t.className = "irb-key";
+    t.innerHTML = `<input type="text" maxlength="32" value="${esc(b.name)}" spellcheck="false"><small>${esc(irbDetail(b))}</small><div class="irb-acts"></div>`;
+    $("input", t).oninput = (e) => (b.name = e.target.value);
+    const acts = $(".irb-acts", t), btn = (label, title, fn) => { const x = document.createElement("button"); x.className = "mini"; x.textContent = label; x.title = title; x.onclick = fn; acts.appendChild(x); };
+    btn("Test", "Point your Flipper at the device and send this button", async () => { if (!needDevice()) return; const r = await api.irb_test(b); toast(r.error || `Sent ${b.name}`); });
+    btn("◀", "Move earlier", () => { if (i) { [IRB.buttons[i - 1], IRB.buttons[i]] = [IRB.buttons[i], IRB.buttons[i - 1]]; irbRender(); } });
+    btn("▶", "Move later", () => { if (i < IRB.buttons.length - 1) { [IRB.buttons[i + 1], IRB.buttons[i]] = [IRB.buttons[i], IRB.buttons[i + 1]]; irbRender(); } });
+    btn("⧉", "Duplicate", () => { IRB.buttons.splice(i + 1, 0, { ...b, name: b.name + "_2" }); irbRender(); });
+    btn("×", "Remove", () => { IRB.buttons.splice(i, 1); irbRender(); });
+    pad.appendChild(t);
+  });
+}
+function irbAdd(list) { list.forEach((b) => IRB.buttons.push({ ...b })); irbRender(); toast(`Added ${list.length} button${list.length === 1 ? "" : "s"}`); }
+function irbShowPick(title, buttons) {
+  IRB.pick = buttons; $("#irbPick").hidden = false; $("#irbPickTitle").textContent = title;
+  $("#irbPickList").innerHTML = buttons.map((b, i) => `<label class="chk irb-pick-item"><input type="checkbox" data-i="${i}"> <b>${esc(b.name)}</b> <small>${esc(irbDetail(b))}</small></label>`).join("") || `<div class="vw-note">No usable buttons in that remote.</div>`;
+}
+async function irbOpen(source, path, title) {
+  $("#irbPick").hidden = false; $("#irbPickTitle").textContent = "Loading..."; $("#irbPickList").innerHTML = "";
+  const r = await api.irb_load(source, path);
+  if (r.error) { $("#irbPickTitle").textContent = r.error; return; }
+  irbShowPick(title + (r.skipped ? ` (${r.skipped} unusable left out)` : ""), r.buttons);
+}
+async function irbSearch() {
+  if (!S.irdb) { $("#irbDbNote").textContent = "Loading the IR database..."; const d = await api.irdb_index(false); if (d.error) { $("#irbDbNote").textContent = d.error; return; } S.irdb = d; }
+  const q = $("#irbSearch").value.trim().toLowerCase().split(/\s+/).filter(Boolean), list = $("#irbDbList");
+  const hits = q.length ? S.irdb.items.filter(([p]) => q.every((w) => p.toLowerCase().replace(/_/g, " ").includes(w))) : [];
+  $("#irbDbNote").textContent = q.length ? `${hits.length} remotes` : `${S.irdb.count.toLocaleString()} remotes. Type to search.`;
+  list.innerHTML = "";
+  hits.slice(0, 40).forEach(([p]) => {
+    const row = document.createElement("div"); row.className = "vw-btn"; row.style.cursor = "pointer";
+    row.innerHTML = `<b>${esc(p.split("/").pop().replace(/\.ir$/i, "").replace(/_/g, " "))}</b><span>${esc(p)}</span>`;
+    row.onclick = () => irbOpen("irdb", p, p.split("/").pop()); list.appendChild(row);
+  });
+}
+function irbLearnState(on) { IRB.learning = on; $("#irbLearn").textContent = on ? "Stop listening" : "Start listening"; $("#irbLearn").classList.toggle("primary", !on); }
+function onIrLearn(e) {
+  if (e.error) { toast(e.error); irbLearnState(false); return; }
+  if (e.done) { irbLearnState(false); $("#irbLearnNote").textContent = e.done === "timeout" ? "Stopped after 90 seconds." : "Stopped."; return; }
+  const s = e.signal; if (!s) return;
+  const box = $("#irbLearned"), row = document.createElement("div"); row.className = "vw-btn";
+  row.innerHTML = `<input type="text" maxlength="32" placeholder="Name it, like Power" spellcheck="false"><span>${esc(irbDetail(s))}</span>`;
+  const add = document.createElement("button"); add.className = "mini primary"; add.textContent = "Add";
+  add.onclick = () => { const name = $("input", row).value.trim(); if (!name) { toast("Name the button first."); return; } irbAdd([{ ...s, name }]); row.remove(); };
+  row.appendChild(add); box.prepend(row); $("input", row).focus();
+}
+async function irbSave(overwrite) {
+  if (!needDevice()) return;
+  const r = await api.irb_save($("#irbName").value, IRB.buttons, !!overwrite);
+  if (r.exists) { if (await confirmDialog("Replace the remote?", `<code>${esc(r.path)}</code> already exists on your Flipper. Replace it?`, "Replace")) irbSave(true); return; }
+  toast(r.error || `Saved as ${r.path}. Open it in Infrared > Saved Remotes.`);
+}
+/* health check: polls only while its panel is open and visible */
+const HC = { pts: [], timer: 0, busy: false, total: 0 };
+const kb = (b) => (b == null ? "-" : `${Math.round(b / 1024)} KB`);
+function hcOpen() { const t = $('.tool[data-tool="health"]'); return !!t && t.open && S.tab === "flipper" && FM.sub === "tools" && !document.hidden; }
+function hcDraw() {
+  const cv = $("#hcGraph"), ctx = cv.getContext("2d"), w = cv.width, h = cv.height, pts = HC.pts;
+  ctx.clearRect(0, 0, w, h);
+  ctx.strokeStyle = "#2a2a2a"; ctx.lineWidth = 1;
+  for (let i = 1; i < 4; i++) { ctx.beginPath(); ctx.moveTo(0, i * h / 4 + .5); ctx.lineTo(w, i * h / 4 + .5); ctx.stroke(); }
+  if (!pts.length || !HC.total) return;
+  const y = (v) => h - 4 - (v / HC.total) * (h - 8), x = (i) => w - (pts.length - 1 - i) * (w / 59);
+  const low = y(30 * 1024);
+  ctx.strokeStyle = "rgba(255,90,79,.5)"; ctx.setLineDash([4, 4]); ctx.beginPath(); ctx.moveTo(0, low); ctx.lineTo(w, low); ctx.stroke(); ctx.setLineDash([]);
+  ctx.strokeStyle = "#ff8200"; ctx.lineWidth = 2; ctx.beginPath();
+  pts.forEach((v, i) => (i ? ctx.lineTo(x(i), y(v)) : ctx.moveTo(x(i), y(v)))); ctx.stroke();
+  ctx.fillStyle = "#8a8a8a"; ctx.font = "11px Segoe UI"; ctx.fillText(`${kb(HC.total)} total`, 6, 13); ctx.fillText("30 KB", 6, low - 4);
+}
+function hcRender(r) {
+  const hp = r.heap || {}, pw = r.power || {}, sd = r.sd || {};
+  HC.total = hp.total || HC.total;
+  $("#hcFree").textContent = kb(hp.free); $("#hcFreeSub").textContent = hp.block ? `biggest free block ${kb(hp.block)}` : "";
+  $("#hcMin").textContent = kb(hp.min); $("#hcMinSub").textContent = r.uptime ? `restarted ${r.uptime} ago` : "";
+  $("#hcMin").parentElement.classList.toggle("bad", hp.min != null && hp.min < 30 * 1024);
+  $("#hcFree").parentElement.classList.toggle("bad", hp.free != null && hp.free < 40 * 1024);
+  $("#hcBat").textContent = pw.level != null ? `${pw.level}%` : "-";
+  $("#hcBatSub").textContent = [pw.state, pw.health ? `health ${pw.health}%` : "", pw.temp ? `${pw.temp}°C` : ""].filter(Boolean).join(" · ");
+  $("#hcSd").textContent = sd.free_kib != null ? `${(sd.free_kib / 1048576).toFixed(2)} GB free` : "-";
+  $("#hcSdSub").textContent = sd.total_kib ? `of ${(sd.total_kib / 1048576).toFixed(2)} GB${sd.type ? " · " + sd.type : ""}` : "";
+  const adv = [];
+  if (hp.min != null && hp.min < 30 * 1024) adv.push(`Since it last restarted, your Flipper got down to ${kb(hp.min)} of free memory. That's close to running out, which is what "out of memory" crashes are. Heavy animations, a big asset pack or a large app can cause it: check your packs below.`);
+  else if (hp.min != null) adv.push(`Memory looks fine: the lowest it reached since restarting was ${kb(hp.min)}.`);
+  if (r.app) adv.push(`${r.app} is open on your Flipper, so these numbers include it.`);
+  if (pw.level != null && pw.level < 15) adv.push("The battery is low. Charge it before long jobs like firmware updates.");
+  $("#hcAdvice").textContent = adv.join(" ") || $("#hcAdvice").textContent;
+  hcDraw();
+}
+async function hcPoll() {
+  if (HC.busy || S.busy || !S.device.connected || S.device.error) return;
+  HC.busy = true; $("#hcStatus").textContent = "Reading...";
+  const r = await api.health_snapshot(); HC.busy = false;
+  if (r.error) { $("#hcStatus").textContent = r.error; return; }
+  $("#hcStatus").textContent = `Updated ${new Date().toLocaleTimeString([], { hour: "2-digit", minute: "2-digit", second: "2-digit" })}`;
+  if (r.heap && r.heap.free != null) { HC.pts.push(r.heap.free); if (HC.pts.length > 60) HC.pts.shift(); }
+  hcRender(r);
+}
+function hcTick() {
+  clearTimeout(HC.timer);
+  if (!hcOpen()) return;
+  hcPoll().finally(() => { if ($("#hcLive").checked && hcOpen()) HC.timer = setTimeout(hcTick, 5000); });
+}
+async function hcScan() {
+  if (!needDevice()) return;
+  $("#hcScanStatus").textContent = "Reading every pack...";
+  const r = await api.health_packs();
+  if (r.error) { $("#hcScanStatus").textContent = r.error; return; }
+  $("#hcScanStatus").textContent = r.packs.length ? "Memory each set needs while it's selected: its icons and fonts all the time, plus the animation that's playing." : "No animations found.";
+  const box = $("#hcPacks"); box.innerHTML = "";
+  r.packs.sort((a, b) => b.in_use - a.in_use || b.total - a.total).forEach((p) => {
+    const row = document.createElement("div"); row.className = "vw-btn hc-pack " + p.level;
+    const heavy = p.heaviest.length ? `heaviest: ${p.heaviest.map((a) => `${esc(a.name)} ${kb(a.mem)}`).join(", ")}` : "no animations";
+    row.innerHTML = `<b>${esc(p.name)}${p.in_use ? ` <em class="tag-use">In use</em>` : ""}</b><span>${kb(p.total)} · ${p.anims} anim${p.anims === 1 ? "" : "s"}${p.icons ? ` · ${p.icons} icons` : ""} · ${heavy}</span>`;
+    if (p.uncompressed) {
+      const b = document.createElement("button"); b.className = "mini" + (p.in_use ? "" : " primary");
+      b.textContent = `Shrink ${p.uncompressed} frame${p.uncompressed === 1 ? "" : "s"}`;
+      b.title = p.in_use ? "Pick another pack on your Flipper first: this one is in use" : "Compress its uncompressed frames, the way Flipper's own packer does. They look exactly the same.";
+      b.onclick = async () => {
+        if (!(await confirmDialog(`Shrink ${esc(p.name)}?`, `${p.uncompressed} animation frames are stored uncompressed. Workbench compresses them in place on the SD card. They look exactly the same and take less memory while they play.`, "Shrink"))) return;
+        startJob("files", () => api.health_shrink(p.path));
+      };
+      row.appendChild(b);
+    }
+    box.appendChild(row);
+  });
 }
 /* ---------- NFC maker ---------- */
 const NF_KINDS = {
@@ -1869,7 +2143,7 @@ async function anCommit() {
 function anShow(i) {
   const a = TL.anim; if (!a || !a.seq.length) return;
   a.i = (i + a.seq.length) % a.seq.length;
-  const f = a.seq[a.i]; pmPaint($("#anCanvas"), f.bits, 128, 64);
+  const f = a.seq[a.i]; pmPaint($("#anCanvas"), f.bits, 128, 64); anBubbleOverlay();
   const kept = a.seq.filter((x) => !x.off);
   $("#anPos").textContent = `${Math.max(1, kept.indexOf(f) + 1)} / ${kept.length} at ${a.fps} fps`;
   const strip = $("#anStrip"), prev = strip.querySelector(".on"), cur = strip.children[a.i];
@@ -1899,31 +2173,123 @@ async function animRebuild() {
   if (key !== a.key && a.edited) toast("The frames changed, so your frame edits were cleared.");
   if (key !== a.key) { a.seq = a.base.map((_, i) => ({ src: i, e: new Map(), off: false })); a.undo = []; a.edited = false; a.i = 0; }   // different frames: earlier edits no longer line up
   a.key = key; a.seq.forEach(anBake);
-  $("#anWrap").hidden = false; $("#anSaveRow").hidden = false; $("#anStripWrap").hidden = false;
+  $("#anWrap").hidden = false; $("#anSaveRow").hidden = false; $("#anStripWrap").hidden = false; $("#anBubbleWrap").hidden = false; $("#anWhenRow").hidden = false;
   anStripDraw(); anShow(Math.min(a.i, a.seq.length - 1)); anPlay(a.playing);
   if (a.edited) await anCommit(); else anStatusText(r.mem);
 }
 function anSnapshot() { const a = TL.anim; a.undo.push(a.seq.map((f) => ({ ...f, e: new Map(f.e) }))); if (a.undo.length > 40) a.undo.shift(); }
 function anRefresh(i) { anStripDraw(); anShow(i); anCommit(); }
 function anFrameOp(fn) { const a = TL.anim; if (!a || !a.seq.length) return; anPlay(false); anSnapshot(); fn(a); }
-function anSetTool(t) { TL.pen = TL.pen === t ? null : t; $("#anPen").classList.toggle("on", TL.pen === "pen"); $("#anEraser").classList.toggle("on", TL.pen === "eraser"); $("#anCanvas").classList.toggle("drawing", !!TL.pen); if (TL.pen) anPlay(false); }
+function anSetTool(t) {
+  TL.pen = TL.pen === t ? null : t;
+  $$(".an-tool").forEach((b) => b.classList.toggle("on", b.dataset.tool === TL.pen));
+  $("#anCanvas").classList.toggle("drawing", !!TL.pen); if (TL.pen) anPlay(false);
+}
+/* pixels of a shape or text, as Map(pixel -> ink) */
+function shapePixels(tool, x0, y0, x1, y1, fill) {
+  const px = new Set(), put = (x, y) => { if (x >= 0 && x < 128 && y >= 0 && y < 64) px.add(y * 128 + x); };
+  if (tool === "line") {
+    const n = Math.max(Math.abs(x1 - x0), Math.abs(y1 - y0), 1);
+    for (let k = 0; k <= n; k++) put(Math.round(x0 + (x1 - x0) * k / n), Math.round(y0 + (y1 - y0) * k / n));
+  } else if (tool === "box") {
+    const [a, b, c, d] = [Math.min(x0, x1), Math.min(y0, y1), Math.max(x0, x1), Math.max(y0, y1)];
+    for (let y = b; y <= d; y++) for (let x = a; x <= c; x++) if (fill || y === b || y === d || x === a || x === c) put(x, y);
+  } else if (tool === "circle") {
+    const cx = (x0 + x1) / 2, cy = (y0 + y1) / 2, rx = Math.max(.5, Math.abs(x1 - x0) / 2), ry = Math.max(.5, Math.abs(y1 - y0) / 2);
+    for (let y = Math.floor(cy - ry); y <= Math.ceil(cy + ry); y++) for (let x = Math.floor(cx - rx); x <= Math.ceil(cx + rx); x++) {
+      const d = ((x - cx) / rx) ** 2 + ((y - cy) / ry) ** 2, edge = 1 / Math.min(rx, ry) * 1.6;
+      if (fill ? d <= 1 : Math.abs(d - 1) <= edge) put(x, y);
+    }
+  }
+  return px;
+}
+function textPixels(text, x0, y0, size) {
+  const cv = document.createElement("canvas"); cv.width = 128; cv.height = 64;
+  const ctx = cv.getContext("2d"); ctx.font = `${size}px Silkscreen`; ctx.textBaseline = "top"; ctx.fillStyle = "#000";
+  String(text).split("\n").forEach((line, i) => ctx.fillText(line, x0, y0 + i * (size + 2)));
+  const d = ctx.getImageData(0, 0, 128, 64).data, px = new Set();
+  for (let i = 0; i < 8192; i++) if (d[i * 4 + 3] > 110) px.add(i);
+  return px;
+}
+function anApply(frames, px, ink) { frames.forEach((f) => { px.forEach((p) => f.e.set(p, ink)); anBake(f); }); }
 function anDrawBind() {
-  const cv = $("#anCanvas"); let last = null;
+  const cv = $("#anCanvas"); let start = null, last = null, base = null, stroke = null;
   const at = (e) => { const r = cv.getBoundingClientRect(); return [Math.max(0, Math.min(127, Math.floor((e.clientX - r.left) / r.width * 128))), Math.max(0, Math.min(63, Math.floor((e.clientY - r.top) / r.height * 64)))]; };
-  const plot = (x0, y0, x1, y1) => {
-    const a = TL.anim, f = a.seq[a.i], ink = TL.pen === "pen" ? 1 : 0, n = Math.max(Math.abs(x1 - x0), Math.abs(y1 - y0), 1);
-    for (let k = 0; k <= n; k++) f.e.set(Math.round(y0 + (y1 - y0) * k / n) * 128 + Math.round(x0 + (x1 - x0) * k / n), ink);
-    anBake(f); pmPaint(cv, f.bits, 128, 64);
+  const cur = () => TL.anim.seq[TL.anim.i];
+  const ink = () => (TL.pen === "eraser" || $("#anWhite").checked ? 0 : 1);
+  const show = () => { anBake(cur()); pmPaint(cv, cur().bits, 128, 64); anBubbleOverlay(); };
+  cv.addEventListener("pointerdown", async (e) => {
+    const a = TL.anim; if (!TL.pen || !a || !a.seq.length) return;
+    anPlay(false); const p = at(e);
+    if (TL.pen === "text") {
+      await document.fonts.load("8px Silkscreen");
+      const text = await promptDialog("Text to draw (use \\n for a new line)", "", "Draw");
+      if (!text) return;
+      const size = +($("#anTextSize") ? $("#anTextSize").value : 8) || 8;
+      anSnapshot(); const px = textPixels(text.replace(/\\n/g, "\n"), p[0], p[1], size);
+      anApply($("#anAll").checked ? a.seq : [cur()], px, ink()); anRefresh(a.i); return;
+    }
+    anSnapshot(); cv.setPointerCapture(e.pointerId);
+    start = last = p; base = new Map(cur().e); stroke = new Map();
+    if (TL.pen === "pen" || TL.pen === "eraser") { shapePixels("line", ...p, ...p).forEach((q) => { cur().e.set(q, ink()); stroke.set(q, ink()); }); show(); }
+  });
+  cv.addEventListener("pointermove", (e) => {
+    if (!start) return; const p = at(e), f = cur();
+    if (TL.pen === "pen" || TL.pen === "eraser") shapePixels("line", ...last, ...p).forEach((q) => { f.e.set(q, ink()); stroke.set(q, ink()); });
+    else { f.e = new Map(base); stroke = new Map(); shapePixels(TL.pen, ...start, ...p, $("#anFill").checked).forEach((q) => { f.e.set(q, ink()); stroke.set(q, ink()); }); }
+    last = p; show();
+  });
+  const end = () => {
+    if (!start) return; start = null; const a = TL.anim;
+    if ($("#anAll").checked && stroke && stroke.size) a.seq.forEach((f, i) => { if (i !== a.i) { stroke.forEach((v, q) => f.e.set(q, v)); anBake(f); } });
+    anRefresh(a.i);
   };
-  cv.addEventListener("pointerdown", (e) => { if (!TL.pen || !TL.anim || !TL.anim.seq.length) return; anPlay(false); anSnapshot(); cv.setPointerCapture(e.pointerId); last = at(e); plot(...last, ...last); });
-  cv.addEventListener("pointermove", (e) => { if (!last) return; const p = at(e); plot(...last, ...p); last = p; });
-  const end = () => { if (!last) return; last = null; const a = TL.anim; anRefresh(a.i); };
   cv.addEventListener("pointerup", end); cv.addEventListener("pointercancel", end);
+}
+/* speech bubbles: positions count the kept frames, like the firmware will */
+function anKeptPos() { const a = TL.anim; return a.seq.filter((f) => !f.off).indexOf(a.seq[a.i]); }
+function anBubbleOverlay() {
+  const a = TL.anim; if (!a || !a.bubbles || !a.bubbles.length) return;
+  const pos = anKeptPos(), cv = $("#anCanvas"), ctx = cv.getContext("2d");
+  a.bubbles.filter((b) => b.text && pos >= b.start && pos <= b.end).forEach((b) => {
+    const lines = b.text.split("\\n"), px = new Set(), wpx = Math.max(...lines.map((l) => l.length)) * 6 + 7, hpx = lines.length * 8 + 4;
+    const img = ctx.getImageData(0, 0, 128, 64);
+    const set = (x, y, on) => { if (x < 0 || x > 127 || y < 0 || y > 63) return; img.data[(y * 128 + x) * 4 + 3] = on ? 255 : 0; };
+    for (let y = b.y; y < b.y + hpx; y++) for (let x = b.x; x < b.x + wpx; x++) {
+      const edge = y === b.y || y === b.y + hpx - 1 || x === b.x || x === b.x + wpx - 1, corner = (x === b.x || x === b.x + wpx - 1) && (y === b.y || y === b.y + hpx - 1);
+      set(x, y, edge && !corner);
+    }
+    const tx = b.h === "Left" ? b.x - 4 : b.h === "Right" ? b.x + wpx + 3 : b.x + wpx / 2, ty = b.v === "Top" ? b.y : b.v === "Bottom" ? b.y + hpx - 1 : b.y + hpx / 2;
+    if (b.h !== "Center") for (let k = 0; k < 4; k++) set(Math.round(tx + (b.h === "Left" ? k : -k)), Math.round(ty), true);
+    textPixels(lines.join("\n"), b.x + 4, b.y + 2, 8).forEach((q) => set(q % 128, q >> 7, true));
+    ctx.putImageData(img, 0, 0);
+  });
+}
+function anBubblesDraw() {
+  const a = TL.anim, box = $("#anBubbles"); box.innerHTML = "";
+  (a.bubbles || []).forEach((b, i) => {
+    const row = document.createElement("div"); row.className = "vw-btn an-bubble";
+    const opt = (list, v) => list.map((x) => `<option${x === v ? " selected" : ""}>${x}</option>`).join("");
+    row.innerHTML = `<input type="text" maxlength="100" value="${esc(b.text)}" placeholder="What the dolphin says">
+      <label>frames <input type="number" min="1" value="${b.start + 1}" data-k="start"> to <input type="number" min="1" value="${b.end + 1}" data-k="end"></label>
+      <label>x <input type="number" min="0" max="127" value="${b.x}" data-k="x"> y <input type="number" min="0" max="63" value="${b.y}" data-k="y"></label>
+      <label>tail <select data-k="h">${opt(["Left", "Center", "Right"], b.h)}</select><select data-k="v">${opt(["Top", "Center", "Bottom"], b.v)}</select></label>`;
+    row.querySelector('input[type=text]').oninput = (e) => { b.text = e.target.value; anShow(a.i); };
+    row.querySelectorAll("[data-k]").forEach((el) => (el.oninput = () => { const k = el.dataset.k, v = el.value; b[k] = k === "h" || k === "v" ? v : k === "start" || k === "end" ? Math.max(0, (+v || 1) - 1) : +v || 0; anShow(a.i); }));
+    const rm = document.createElement("button"); rm.className = "mini"; rm.textContent = "×"; rm.title = "Remove this bubble";
+    rm.onclick = () => { a.bubbles.splice(i, 1); anBubblesDraw(); anShow(a.i); };
+    row.appendChild(rm); box.appendChild(row);
+  });
+}
+function anExtra() {
+  const a = TL.anim;
+  return { bubbles: (a && a.bubbles) || [], mood: $("#anMood").value, min_level: +$("#anLvMin").value || 1, max_level: +$("#anLvMax").value || 30 };
 }
 function anLoaded(r) {
   if (r.error) { toast(r.error); return; }
   if (!r.ok) return;
-  TL.anim = { base: [], seq: [], undo: [], i: 0, fps: 1, playing: true, edited: false, kind: r.kind, duration: r.duration };
+  TL.anim = { base: [], seq: [], undo: [], bubbles: [], i: 0, fps: 1, playing: true, edited: false, kind: r.kind, duration: r.duration };
+  if ($("#anBubbles")) $("#anBubbles").innerHTML = "";
   $("#anName").value = r.name.replace(/[^A-Za-z0-9_]+/g, "_").slice(0, 40);
   const moving = r.kind !== "image"; $("#anTrim").hidden = !moving;
   ["#anStart", "#anEnd"].forEach((s) => ($(s).max = r.duration || 1));
@@ -2038,6 +2404,7 @@ async function pmOpen(name) {
   $("#pmTitle").textContent = d.name;
   $("#pmStats").textContent = `${pmKB(d.size)} on the SD card`;
   pmMemory(d.memory);
+  pmPreview(d);
   const an = $("#pmAnims"); an.innerHTML = d.animations.length ? "" : `<div class="vw-note">No animations yet, so your Flipper keeps its normal ones.</div>`;
   d.animations.forEach((a) => {
     const row = document.createElement("div"); row.className = "vw-btn pm-row"; row.appendChild(pmThumb(a.thumb, 64, 32));
@@ -2066,6 +2433,33 @@ async function pmOpen(name) {
     const rm = document.createElement("button"); rm.className = "mini"; rm.textContent = "Remove";
     rm.onclick = async () => { const x = await api.pm_remove_font(name, f.name); if (x.error) toast(x.error); pmRefresh(); };
     row.appendChild(rm); fo.appendChild(row);
+  });
+}
+async function pmPreview(d) {
+  await document.fonts.load("8px Silkscreen");
+  const icon = (p) => d.iconList.find((i) => i.path === p);
+  const draw = (cv, fn) => {
+    const ctx = cv.getContext("2d"), img = ctx.createImageData(128, 64);
+    const set = (x, y, on = true) => { if (x >= 0 && x < 128 && y >= 0 && y < 64) img.data[(y * 128 + x) * 4 + 3] = on ? 255 : 0; };
+    const blit = (t, ox, oy, inv) => { const b = b64bytes(t.bits), row = (t.w + 7) >> 3; for (let y = 0; y < t.h; y++) for (let x = 0; x < t.w; x++) if ((b[y * row + (x >> 3)] >> (x & 7)) & 1) set(ox + x, oy + y, !inv); };
+    const dashed = (ox, oy, w, h) => { for (let x = 0; x < w; x += 2) { set(ox + x, oy); set(ox + x, oy + h - 1); } for (let y = 0; y < h; y += 2) { set(ox, oy + y); set(ox + w - 1, oy + y); } };
+    const text = (s, x, y, inv) => textPixels(s, x, y, 8).forEach((q) => set(q % 128, q >> 7, !inv));
+    fn({ set, blit, dashed, text }); ctx.putImageData(img, 0, 0);
+  };
+  draw($("#pmPrevPass"), (g) => {
+    const bg = icon("Passport/passport_128x64"), face = icon("Passport/passport_happy_46x49");
+    if (bg && bg.thumb) g.blit(bg.thumb, 0, 0); else g.dashed(0, 0, 128, 64);
+    if (face && face.thumb) g.blit(face.thumb, 11, 2); else g.dashed(11, 2, 46, 49);
+    g.text("Flipper", 59, 3); g.text("Mood: Happy", 59, 15); g.text("Level: 1", 59, 27);
+  });
+  draw($("#pmPrevMenu"), (g) => {
+    [["Sub-GHz", "MainMenu/Sub1ghz_14"], ["125 kHz RFID", "MainMenu/125khz_14"], ["NFC", "MainMenu/NFC_14"], ["Infrared", "MainMenu/Infrared_14"]].forEach(([name, p], i) => {
+      const y = i * 16, sel = i === 0, ic = icon(p);
+      if (sel) for (let yy = y; yy < y + 16; yy++) for (let x = 0; x < 124; x++) g.set(x, yy);
+      if (ic && ic.thumb) g.blit(ic.thumb, 2, y + 1, sel); else { for (let k = 0; k < 14; k += 2) { g.set(2 + k, y + 1, !sel); g.set(2 + k, y + 14, !sel); g.set(2, y + 1 + k, !sel); g.set(15, y + 1 + k, !sel); } }
+      g.text(name, 20, y + 4, sel);
+    });
+    for (let y = 0; y < 64; y += 2) g.set(126, y);
   });
 }
 async function pmRefresh() { await pmLoad(); if (PM.cur) await pmOpen(PM.cur); }
@@ -2729,6 +3123,7 @@ function onEvents(batch) {
       }
       case "mirror": onMirrorState(e); break;
       case "lcdstream": anStreamState(e.state); break;
+      case "irlearn": onIrLearn(e); break;
       case "fprog": onFprog(e); break;
       case "cli": onCli(e); break;
       case "ble_pin": (async () => {
@@ -2760,6 +3155,9 @@ function onEvents(batch) {
 }
 
 function finished(e) {
+  if (e.cancelled) S.catQueue = [];
+  else if (S.catQueue && S.catQueue.length) setTimeout(catNext, 1500);
+  if (e.pr_done) prAfter(e.pr_done);
   S.busy = null; S.batch = null;
   setBuildButton(false);
   $("#picker").hidden = true;
@@ -2776,6 +3174,7 @@ function finished(e) {
     }, 1500);
   }
   if (e.restored) toast(`Restored ${e.restored.files} files`);
+  if (e.hc_done) { toast(`Shrank ${e.hc_done.frames} frames, ${Math.round(e.hc_done.saved / 1024)} KB smaller`); hcScan(); }
   if (e.pm_done) { toast("Pack installed"); $("#pmNote").innerHTML = `Installed. On your Flipper, pick it in <b>Momentum Settings &gt; Interface &gt; Graphics &gt; Asset pack</b>. Your Flipper restarts when you back out.`; }
   if (e.saved) toast("Saved. Opening the folder"), api.open_folder(e.saved);
   if (!e.ok && !e.cancelled && S.tab !== "build" && e.error) toast(e.error);
@@ -2932,20 +3331,72 @@ function bind() {
   $("#anRight").onclick = () => anMove(1);
   $("#anClear").onclick = () => anFrameOp((a) => { const f = a.seq[a.i]; f.e = new Map(); anBake(f); anRefresh(a.i); });
   $("#anUndo").onclick = () => { const a = TL.anim; if (!a || !a.undo.length) return; anPlay(false); a.seq = a.undo.pop(); a.seq.forEach(anBake); anRefresh(Math.min(a.i, a.seq.length - 1)); };
-  $("#anPen").onclick = () => anSetTool("pen");
-  $("#anEraser").onclick = () => anSetTool("eraser");
+  $$(".an-tool").forEach((b) => (b.onclick = () => anSetTool(b.dataset.tool)));
+  $("#anBubbleAdd").onclick = () => { const a = TL.anim; if (!a) return; const p = Math.max(0, anKeptPos()); a.bubbles.push({ text: "", x: 64, y: 8, h: "Left", v: "Bottom", start: p, end: Math.min(p + 8, a.seq.filter((f) => !f.off).length - 1) }); anBubblesDraw(); anShow(a.i); const ins = $$("#anBubbles input[type=text]"); if (ins.length) ins[ins.length - 1].focus(); };
   anDrawBind();
   $('.tool[data-tool="anim"]').addEventListener("toggle", (e) => { if (!e.target.open && TL.streaming) anStreamToggle(); });
   $("#anInstall").onclick = async () => {
     if (!needDevice()) return;
     $("#anInstall").disabled = true; toast("Installing the animation...");
-    const r = await api.anim_install($("#anName").value, +$("#anWeight").value, $("#anTarget").value);
+    const r = await api.anim_install($("#anName").value, +$("#anWeight").value, $("#anTarget").value, anExtra());
     $("#anInstall").disabled = false;
     if (r.error) { toast(r.error); return; }
     $("#anNote").innerHTML = r.momentum ? `Installed to the <b>Workbench</b> asset pack. On your Flipper, pick it in <b>Momentum Settings &gt; Interface &gt; Graphics &gt; Asset pack</b> to see it.` : `Installed to /ext/dolphin. It plays among your desktop animations after the Flipper restarts.`;
     animListMade();
   };
   $('.tool[data-tool="packs"]').addEventListener("toggle", (e) => { if (e.target.open) packsLoad(); });
+  $("#recMp4").onchange = () => { S.recMp4 = $("#recMp4").checked; api.set_rec_mp4(S.recMp4); };
+  $('.tool[data-tool="profiles"]').addEventListener("toggle", (e) => { if (e.target.open) prRender(); });
+  $("#prSave").onclick = () => { if (!needDevice()) return; const n = $("#prName").value.trim(); if (!n) { toast("Give the profile a name."); return; } startJob("files", () => api.profile_save(n, $("#prApps").checked)); };
+  $("#buText").addEventListener("input", buRender);
+  $("#buText").addEventListener("scroll", () => { $("#buHl").scrollTop = $("#buText").scrollTop; $("#buHl").scrollLeft = $("#buText").scrollLeft; });
+  $("#buLoad").onclick = () => buLoadList();
+  $("#buList").onchange = async () => {
+    const n = $("#buList").value; $("#buName").value = n.replace(/\.txt$/i, "");
+    if (!n) { $("#buText").value = ""; buRender(); return; }
+    const r = await api.bu_read(n); if (r.error) { toast(r.error); return; } $("#buText").value = r.text; buRender();
+  };
+  $("#buSave").onclick = () => buSave(false);
+  $("#buLayout").onchange = async () => { const r = await api.bu_set_layout($("#buLayout").value); toast(r.error || "Layout saved. The BadUSB app uses it from now on."); };
+  $('.tool[data-tool="passport"]').addEventListener("toggle", (e) => { if (e.target.open) ppLoad(); });
+  $("#ppName").oninput = () => ppDraw($("#ppName").value);
+  $("#ppSave").onclick = () => ppSave($("#ppName").value);
+  $("#ppReset").onclick = () => { $("#ppName").value = ""; ppSave(""); };
+  $("#ppArt").onclick = () => { setSub("studio"); const t = $('.tool[data-tool="mypacks"]'); t.open = true; pmLoad(); t.scrollIntoView({ behavior: "smooth" }); toast("Pick a pack, then use Passport background, Happy, Okay and Bad"); };
+  $("#irbTProto").innerHTML = IRB_PROTOS.map((p) => `<option>${p}</option>`).join("");
+  $$("#irbSrc .fchip").forEach((b) => (b.onclick = () => {
+    $$("#irbSrc .fchip").forEach((x) => x.classList.toggle("on", x === b)); $$(".irb-panel").forEach((p) => (p.hidden = p.dataset.src !== b.dataset.src));
+    if (b.dataset.src === "irdb") irbSearch();
+  }));
+  $('.tool[data-tool="irb"]').addEventListener("toggle", (e) => { if (e.target.open) irbSearch(); else if (IRB.learning) api.irb_learn(false); });
+  let irbT; $("#irbSearch").oninput = () => { clearTimeout(irbT); irbT = setTimeout(irbSearch, 200); };
+  $("#irbFlLoad").onclick = async () => {
+    if (!needDevice()) return;
+    const r = await api.ir_files(), box = $("#irbFlList");
+    if (r.error) { toast(r.error); return; }
+    box.innerHTML = r.files.length ? "" : `<div class="vw-note">No remotes in /ext/infrared yet.</div>`;
+    r.files.forEach((p) => { const row = document.createElement("div"); row.className = "vw-btn"; row.style.cursor = "pointer"; row.innerHTML = `<b>${esc(p.split("/").pop())}</b><span>${esc(p)}</span>`; row.onclick = () => irbOpen("flipper", p, p.split("/").pop()); box.appendChild(row); });
+  };
+  $("#irbLearn").onclick = async () => {
+    if (IRB.learning) { await api.irb_learn(false); return; }
+    if (!needDevice()) return;
+    const r = await api.irb_learn(true); if (r.error) { toast(r.error); return; }
+    irbLearnState(true); $("#irbLearnNote").textContent = "Listening. Point your remote at the top of your Flipper and press a button.";
+  };
+  $("#irbTAdd").onclick = () => {
+    const name = $("#irbTName").value.trim(), addr = $("#irbTAddr").value.trim(), cmd = $("#irbTCmd").value.trim();
+    if (!name || !/^(0x)?[0-9a-f]{1,8}$/i.test(addr) || !/^(0x)?[0-9a-f]{1,8}$/i.test(cmd)) { toast("Give it a name, and address and command as hex, like 0x04."); return; }
+    const le = (v) => { const n = parseInt(v.replace(/^0x/i, ""), 16) >>> 0; return [0, 8, 16, 24].map((s) => ((n >>> s) & 255).toString(16).toUpperCase().padStart(2, "0")).join(" "); };
+    irbAdd([{ name, type: "parsed", protocol: $("#irbTProto").value, address: le(addr), command: le(cmd) }]);
+    $("#irbTName").value = "";
+  };
+  $("#irbPickAll").onclick = () => $$("#irbPickList input").forEach((x) => (x.checked = true));
+  $("#irbPickAdd").onclick = () => { const sel = $$("#irbPickList input:checked").map((x) => IRB.pick[+x.dataset.i]); if (!sel.length) { toast("Tick some buttons first."); return; } irbAdd(sel); $$("#irbPickList input").forEach((x) => (x.checked = false)); };
+  $("#irbSave").onclick = () => irbSave(false);
+  $("#irbExport").onclick = async () => { const r = await api.irb_export($("#irbName").value, IRB.buttons); if (r.error) toast(r.error); else if (r.ok) toast("Saved on this PC"); };
+  $('.tool[data-tool="health"]').addEventListener("toggle", (e) => { if (e.target.open) hcTick(); else clearTimeout(HC.timer); });
+  $("#hcLive").onchange = hcTick; $("#hcNow").onclick = hcPoll; $("#hcScan").onclick = hcScan;
+  document.addEventListener("visibilitychange", () => { if (!document.hidden) hcTick(); });
   $('.tool[data-tool="mypacks"]').addEventListener("toggle", (e) => { if (e.target.open) pmLoad(); });
   $("#pmCreate").onclick = async () => {
     const r = await api.pm_create($("#pmNewName").value);
@@ -2963,7 +3414,7 @@ function bind() {
   };
   $("#pmAddAnim").onclick = () => { const t = $('.tool[data-tool="anim"]'); t.open = true; t.scrollIntoView({ behavior: "smooth", block: "start" }); $("#anPick").click(); };
   $("#anAddPack").onclick = async () => {
-    const r = await api.pm_add_anim(PM.cur, $("#anName").value, +$("#anWeight").value);
+    const r = await api.pm_add_anim(PM.cur, $("#anName").value, +$("#anWeight").value, anExtra());
     if (r.error) { toast(r.error); return; }
     toast(`Added to ${PM.cur}`); $('.tool[data-tool="anim"]').open = false;
     await pmRefresh(); $('.tool[data-tool="mypacks"]').scrollIntoView({ behavior: "smooth", block: "start" });
@@ -3154,6 +3605,7 @@ async function boot() {
   const info = await api.init();
   S.autoMirror = info.auto_mirror !== false; $("#amToggle").checked = S.autoMirror;
   S.framed = !!info.frame_shots; $("#frameBtn").classList.toggle("on", S.framed);
+  S.recMp4 = !!info.rec_mp4; $("#recMp4").checked = S.recMp4;
   S.autoBackup = info.auto_backup !== false; $("#bkAuto").checked = S.autoBackup;
   S.fws = info.firmwares; S.fw = info.fw; S.after = info.after || "none"; S.autoFw = info.auto_fw !== false;
   S.recent = info.recent || []; S.repoUrl = info.repo; S.outDir = info.out_dir;

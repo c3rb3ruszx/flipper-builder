@@ -99,6 +99,14 @@ repo, solders while it compiles, DJs when it's done and cries when the build bre
 
 - **Music**: turn a MIDI file or an RTTTL ringtone into a song for the Flipper's Music Player. Hear it
   in the app first (square wave, like the Flipper's buzzer), then save it to the SD card.
+- **Health check**: free memory with a live graph and the lowest point since the last restart, battery
+  and SD card, plus how much memory each asset pack needs, with one click to shrink old uncompressed
+  animations. Handy when your Flipper says it's out of memory.
+- **IR remote builder**: one remote from buttons of any remote (IR database, your Flipper, learned from a
+  real remote or typed in), each tested before you save it.
+- **BadUSB scripts**: edit scripts with highlighting and a checker, and pick the keyboard layout.
+- **Passport** (Momentum): change your Flipper's name. **Profiles**: save a whole setup and switch between
+  setups.
 - **Studio**: one editor for your Flipper's look, next to its live screen. Turn a **video, GIF or picture**
   into a desktop animation: trim it, set the frame rate (up to 30 fps), max frames, threshold, contrast,
   dither, fit, zoom and framing, invert and background. Then edit it frame by frame: draw and erase pixels,

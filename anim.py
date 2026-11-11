@@ -118,7 +118,11 @@ def bm_bytes(img1):
 
 def bm_packed(img1):
     """'1' image -> .bm file bytes, compressed when that is smaller (same choice as Flipper's packer)."""
-    raw = bm_bytes(img1)[1:]
+    return compress_raw(bm_bytes(img1)[1:])
+
+
+def compress_raw(raw):
+    """XBM rows -> .bm file bytes, compressed when that is smaller."""
     enc = heatshrink2.compress(raw, window_sz2=8, lookahead_sz2=4)
     enc = bytes([len(enc) & 0xFF, len(enc) >> 8]) + enc
     return b"\x01\x00" + enc if len(enc) + 2 < len(raw) + 1 else b"\x00" + raw
@@ -135,23 +139,56 @@ def bits(img1):
     return ["".join("1" if px[x, y] == 0 else "0" for x in range(W)) for y in range(H)]
 
 
-def meta_text(n_frames, fps):
+MOODS = {"any": (0, 14), "happy": (0, 4), "okay": (5, 9), "angry": (10, 14)}   # the firmware's butthurt bands
+ALIGN_H, ALIGN_V = ("Left", "Center", "Right"), ("Top", "Center", "Bottom")
+
+
+def clean_bubbles(bubbles, n_frames):
+    """Speech bubbles from the editor -> checked list, sorted by start frame. Raises AnimError if one is bad."""
+    out = []
+    for b in bubbles or []:
+        text = str(b.get("text") or "").replace("\r", "").strip()
+        if not text:
+            continue
+        esc_text = text.replace("\n", "\\n")
+        if len(esc_text.encode("utf-8")) > 100:
+            raise AnimError(f'The bubble "{text[:20]}..." is too long (100 characters at most).')
+        start, end = int(b.get("start", 0)), int(b.get("end", 0))
+        start, end = max(0, min(start, n_frames - 1)), max(0, min(end, n_frames - 1))
+        if end < start:
+            start, end = end, start
+        out.append({"text": esc_text, "x": max(0, min(127, int(b.get("x", 0)))), "y": max(0, min(63, int(b.get("y", 0)))),
+                    "h": b.get("h") if b.get("h") in ALIGN_H else "Left", "v": b.get("v") if b.get("v") in ALIGN_V else "Bottom",
+                    "start": start, "end": end})
+    return sorted(out, key=lambda b: b["start"])
+
+
+def meta_text(n_frames, fps, bubbles=None):
     order = " ".join(str(i) for i in range(n_frames))
+    bubbles = clean_bubbles(bubbles, n_frames)
+    tail = f"Bubble slots: {1 if bubbles else 0}\n"
+    for b in bubbles:                       # one slot: the firmware shows them one after another
+        tail += (f"\nSlot: 0\nX: {b['x']}\nY: {b['y']}\nText: {b['text']}\nAlignH: {b['h']}\nAlignV: {b['v']}\n"
+                 f"StartFrame: {b['start']}\nEndFrame: {b['end']}\n")
     return (f"Filetype: Flipper Animation\nVersion: 1\n\nWidth: {W}\nHeight: {H}\nPassive frames: {n_frames}\n"
             f"Active frames: 0\nFrames order: {order}\nActive cycles: 0\nFrame rate: {fps}\nDuration: 3600\n"
-            f"Active cooldown: 0\n\nBubble slots: 0\n")
+            f"Active cooldown: 0\n\n" + tail)
 
 
-def manifest_entry(name, weight=3):
-    return (f"Name: {name}\nMin butthurt: 0\nMax butthurt: 14\nMin level: 1\nMax level: 30\nWeight: {weight}\n")
+def manifest_entry(name, weight=3, extra=None):
+    extra = extra or {}
+    lo, hi = MOODS.get(extra.get("mood") or "any", MOODS["any"])
+    lv_min = max(1, min(30, int(extra.get("min_level") or 1)))
+    lv_max = max(lv_min, min(30, int(extra.get("max_level") or 30)))
+    return (f"Name: {name}\nMin butthurt: {lo}\nMax butthurt: {hi}\nMin level: {lv_min}\nMax level: {lv_max}\nWeight: {weight}\n")
 
 
-def add_to_manifest(existing, name, weight=3):
+def add_to_manifest(existing, name, weight=3, extra=None):
     """Manifest text with this animation added (or its entry replaced). Keeps everything else as is."""
     text = existing or "Filetype: Flipper Animation Manifest\nVersion: 1\n"
     blocks = re.split(r"\n\s*\n", text.strip("\n"))
     head, entries = blocks[0], [b for b in blocks[1:] if not re.match(rf"Name:\s*{re.escape(name)}\s*$", b.splitlines()[0])]
-    entries.append(manifest_entry(name, weight).strip("\n"))
+    entries.append(manifest_entry(name, weight, extra).strip("\n"))
     return head + "\n\n" + "\n\n".join(entries) + "\n"
 
 
@@ -318,10 +355,10 @@ def build(src, opts):
     return {"frames": ones, "fps": fps, "used": used, "cut": cut, "flipped": flipped}
 
 
-def write_folder(result, dest):
+def write_folder(result, dest, bubbles=None):
     dest = Path(dest)
     dest.mkdir(parents=True, exist_ok=True)
     for i, f in enumerate(result["frames"]):
         (dest / f"frame_{i}.bm").write_bytes(bm_packed(f))
-    (dest / "meta.txt").write_text(meta_text(len(result["frames"]), result["fps"]), encoding="utf-8", newline="\n")
+    (dest / "meta.txt").write_text(meta_text(len(result["frames"]), result["fps"], bubbles), encoding="utf-8", newline="\n")
     return dest

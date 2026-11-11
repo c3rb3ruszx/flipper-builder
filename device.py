@@ -298,6 +298,31 @@ def read_file(port, sdk_dirs, path, size_hint=0):
                         seconds=15 + size_hint / 8192)
 
 
+def _put(mod, st, path, data):
+    """Inside a storage session: write data to path via <path>.fwtmp and a rename."""
+    import tempfile
+    tmp_remote = path + ".fwtmp"
+    fd, tmp_local = tempfile.mkstemp(prefix="fw_", suffix=".bin")
+    try:
+        with os.fdopen(fd, "wb") as fh:
+            fh.write(data)
+        st.send_file(tmp_local, tmp_remote)
+        if st.size(tmp_remote) != len(data):
+            st.remove(tmp_remote)
+            raise DeviceError(f"{path} didn't arrive complete; it was left as it was.")
+        if st.exist_file(path):
+            st.remove(path)
+        st.send_and_wait_eol(f'storage rename "{tmp_remote}" "{path}"\r')
+        answer = st.read.until(st.CLI_PROMPT)
+        if st.has_error(answer):
+            raise DeviceError(f"Couldn't save {path}: {answer.decode('utf-8', 'replace').strip()}")
+    finally:
+        try:
+            os.remove(tmp_local)
+        except OSError:
+            pass
+
+
 def write_file(port, sdk_dirs, path, data):
     """Save bytes to a file on the SD card: written to <path>.fwtmp first, then swapped in, so an
     interrupted save never leaves a half-written file in place."""
