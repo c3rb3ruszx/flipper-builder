@@ -17,7 +17,7 @@ repo, solders while it compiles, DJs when it's done and cries when the build bre
 
 *Called Flipper Builder up to version 1.5.0.*
 
-**[Download the latest release](../../releases/latest)** · [What's new](CHANGELOG.md)
+**[Download the latest release](../../releases/latest)** · [User guide](docs/GUIDE.md) · [What's new](CHANGELOG.md)
 
 ## Quick start
 
@@ -26,6 +26,8 @@ repo, solders while it compiles, DJs when it's done and cries when the build bre
 3. Paste a GitHub link to an app, or pick one on the **Discover** tab, and press **Build**.
 
 ## Features
+
+The [user guide](docs/GUIDE.md) explains every feature step by step, with screenshots.
 
 ### Build
 
