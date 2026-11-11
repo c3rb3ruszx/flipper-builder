@@ -53,7 +53,8 @@ Step "Privacy check"
 $patternsFile = Join-Path $root '.cache\privacy-patterns.txt'
 if (-not (Test-Path $patternsFile)) { throw "Missing $patternsFile (one regex per line: names, emails, paths that must not be published)" }
 $patterns = (Get-Content $patternsFile | Where-Object { $_.Trim() -and -not $_.StartsWith('#') }) -join '|'
-$hits = git grep -n -i -E $patterns -- . ':!ui/vendor'
+# --untracked: new files are about to be committed by `git add -A` too (gitignored files stay excluded)
+$hits = git grep --untracked -n -i -E $patterns -- . ':!ui/vendor'
 if ($hits) { $hits; throw "Personal data found in tracked files" }
 
 if ($DryRun) { Write-Host "Dry run: built and zipped, nothing committed or published." -ForegroundColor Green; exit 0 }
