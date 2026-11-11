@@ -1,14 +1,17 @@
 """GIFs and images -> Flipper desktop animations (the firmware's own format).
 
-An animation is a folder with meta.txt and frame_N.bm files. A .bm frame here is the uncompressed
-variant the firmware accepts: a 0x00 byte, then the 1-bit picture as XBM rows (LSB = leftmost
-pixel, 1 = black), the same bytes Flipper's asset packer writes when it doesn't compress.
+An animation is a folder with meta.txt and frame_N.bm files. A .bm frame is a 0x00 byte, then the
+1-bit picture as XBM rows (LSB = leftmost pixel, 1 = black), or, when that comes out smaller,
+01 00 <length, 2 bytes LE> and the rows heatshrink-compressed (window 8, lookahead 4), exactly what
+Flipper's asset packer writes. The firmware keeps every frame in RAM at its file size while an
+animation plays, so compressing them is what keeps long animations from running it out of memory.
 """
 
 import io
 import re
 from pathlib import Path
 
+import heatshrink2
 from PIL import Image, ImageOps, ImageSequence
 
 W, H = 128, 64
@@ -36,18 +39,19 @@ def load_frames(data, max_frames=MAX_FRAMES):
     return frames, durs
 
 
-def to_1bit(img, fit="contain", dither="floyd", threshold=128, invert=False, contrast=1.0):
-    """One RGBA frame -> 128x64 '1' image (black = ink)."""
+def to_1bit(img, fit="contain", dither="floyd", threshold=128, invert=False, contrast=1.0, size=(W, H)):
+    """One RGBA frame -> '1' image of this size, 128x64 unless told otherwise (black = ink)."""
+    w, h = size
     bg = Image.new("RGBA", img.size, (255, 255, 255, 255))
     g = Image.alpha_composite(bg, img).convert("L")
     if contrast != 1.0:
         g = Image.eval(g, lambda v: max(0, min(255, int((v - 128) * contrast + 128))))
     if fit == "cover":
-        g = ImageOps.fit(g, (W, H), Image.LANCZOS)
+        g = ImageOps.fit(g, (w, h), Image.LANCZOS)
     else:
-        g.thumbnail((W, H), Image.LANCZOS)
-        canvas = Image.new("L", (W, H), 255)
-        canvas.paste(g, ((W - g.width) // 2, (H - g.height) // 2))
+        g.thumbnail((w, h), Image.LANCZOS)
+        canvas = Image.new("L", (w, h), 255)
+        canvas.paste(g, ((w - g.width) // 2, (h - g.height) // 2))
         g = canvas
     if invert:
         g = ImageOps.invert(g)
@@ -55,10 +59,10 @@ def to_1bit(img, fit="contain", dither="floyd", threshold=128, invert=False, con
         g = g.point(lambda v: max(0, min(255, v + (128 - threshold))))
         return g.convert("1")                          # Pillow's default is Floyd-Steinberg
     if dither == "bayer":
-        px, out = g.load(), Image.new("1", (W, H), 1)
+        px, out = g.load(), Image.new("1", (w, h), 1)
         o = out.load()
-        for y in range(H):
-            for x in range(W):
+        for y in range(h):
+            for x in range(w):
                 t = (BAYER4[y % 4][x % 4] + 0.5) * 16 + (threshold - 128)
                 o[x, y] = 0 if px[x, y] < t else 1
         return out
@@ -80,6 +84,14 @@ def bm_bytes(img1):
                     v |= 1 << bit
             out.append(v)
     return bytes(out)
+
+
+def bm_packed(img1):
+    """'1' image -> .bm file bytes, compressed when that is smaller (same choice as Flipper's packer)."""
+    raw = bm_bytes(img1)[1:]
+    enc = heatshrink2.compress(raw, window_sz2=8, lookahead_sz2=4)
+    enc = bytes([len(enc) & 0xFF, len(enc) >> 8]) + enc
+    return b"\x01\x00" + enc if len(enc) + 2 < len(raw) + 1 else b"\x00" + raw
 
 
 def bits(img1):
@@ -130,6 +142,6 @@ def write_folder(result, dest):
     dest = Path(dest)
     dest.mkdir(parents=True, exist_ok=True)
     for i, f in enumerate(result["frames"]):
-        (dest / f"frame_{i}.bm").write_bytes(bm_bytes(f))
+        (dest / f"frame_{i}.bm").write_bytes(bm_packed(f))
     (dest / "meta.txt").write_text(meta_text(len(result["frames"]), result["fps"]), encoding="utf-8", newline="\n")
     return dest

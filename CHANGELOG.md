@@ -2,6 +2,19 @@
 
 Downloads for every version are on the [Releases](../../releases) page.
 
+## 1.11.0
+
+- **Pack maker** (On Flipper > Tools): make your own Momentum asset pack. Add desktop animations from
+  GIFs or pictures, passport art, any of Flipper's 288 icons (animated ones too) and fonts, with a
+  black-and-white preview of each. Built-in tips explain how packs work and how to get a good result.
+- **Import asset packs** from a zip or a folder: ready-made packs, PNG source packs and plain dolphin
+  folders. Every file is checked the way the firmware reads it; anything broken is left out and listed.
+- A memory bar shows how much of your Flipper's memory a pack needs, and warns before it gets risky.
+- Install in one click, save as a zip to share, and see or remove the packs on your Flipper. Workbench
+  won't replace or remove the pack your Flipper is using.
+- Animation maker now compresses frames the way Flipper's own packer does. Animations take far less of
+  your Flipper's memory while they play, and the maker shows how much they need.
+
 ## 1.10.0
 
 - **NFC maker** (On Flipper > Tools): build an NFC tag from scratch. Choose a link, text, Wi-Fi network,

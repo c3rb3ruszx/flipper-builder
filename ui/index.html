@@ -283,6 +283,7 @@
                 <div class="tool-row" id="anSaveRow" hidden>
                   <input id="anName" type="text" maxlength="40" spellcheck="false">
                   <label>How often <select id="anWeight"><option value="1">Rarely</option><option value="3" selected>Normal</option><option value="8">Often</option><option value="20">Mostly this</option></select></label>
+                  <button class="mini" id="anAddPack" hidden></button>
                   <button class="mini primary" id="anInstall">Install to Flipper</button>
                 </div>
                 <div class="vw-note" id="anNote"></div>
@@ -292,6 +293,87 @@
             <details class="tool" data-tool="packs">
               <summary><b>Asset packs</b><span>Animations and icons from Momentum's pack library</span></summary>
               <div class="tool-body"><div class="vw-note" id="pkNote"></div><div class="pack-grid" id="pkGrid"></div></div>
+            </details>
+            <details class="tool" data-tool="mypacks">
+              <summary><b>Pack maker</b><span>Build your own asset pack, or import one from a zip or folder</span></summary>
+              <div class="tool-body">
+                <div class="tool-row">
+                  <input id="pmNewName" type="text" maxlength="31" placeholder="Name for a new pack" spellcheck="false">
+                  <button class="mini primary" id="pmCreate">Create pack</button>
+                  <span class="tool-or">or</span>
+                  <button class="mini" id="pmImpZip"><i data-icon="folder"></i>Import a zip</button>
+                  <button class="mini" id="pmImpDir"><i data-icon="folder"></i>Import a folder</button>
+                  <span class="tool-status" id="pmStatus"></span>
+                </div>
+                <details class="pm-tips" id="pmTips">
+                  <summary>How asset packs work, and some tips</summary>
+                  <div class="pm-tips-body">
+                    <p><b>What is a pack?</b> A theme for your Flipper: desktop animations, icons, passport art and fonts. Only add what you want to change. Everything else keeps its normal look.</p>
+                    <p><b>Making one</b></p>
+                    <ol>
+                      <li>Type a name and press <b>Create pack</b>.</li>
+                      <li>Add animations, passport art, icons or fonts.</li>
+                      <li>Press <b>Install to Flipper</b>.</li>
+                      <li>On your Flipper, open <b>Momentum Settings &gt; Interface &gt; Graphics &gt; Asset pack</b> and pick it. Your Flipper restarts when you back out.</li>
+                    </ol>
+                    <p><b>For the best look</b></p>
+                    <ul>
+                      <li>The screen is 128x64 and only black or white. Bold shapes with strong contrast work best; photos rarely do.</li>
+                      <li>Small icons look cleanest with the <b>None</b> style. For bigger pictures, try <b>Smooth</b>.</li>
+                      <li>Transparent parts of a picture come out empty.</li>
+                      <li>Workbench resizes each icon to the size Flipper expects, so square pictures suit square icons.</li>
+                    </ul>
+                    <p><b>Keep it light.</b> Your Flipper holds all of a pack's icons and fonts in memory, plus every frame of the animation that's playing. Short animations of 10 to 30 frames are plenty. If the memory bar turns red, remove frames or icons, or your Flipper may run out of memory and crash.</p>
+                    <p><b>Importing.</b> Pick a zip or folder holding a ready-made pack, a source pack with PNG files, or a dolphin folder with a <code>manifest.txt</code>. Workbench checks every file, leaves out anything broken and tells you what it skipped. You can then edit the pack like one you made.</p>
+                    <p><b>If something looks wrong,</b> set Asset pack back to <b>Default</b> on your Flipper. To replace the pack you're using, switch to Default first, then install.</p>
+                    <p>Asset packs need Momentum firmware. On other firmware you can still build a pack and save it as a zip.</p>
+                  </div>
+                </details>
+                <div class="pm-list" id="pmList"></div>
+                <div class="pm-editor" id="pmEditor" hidden>
+                  <div class="tool-row pm-head">
+                    <b id="pmTitle"></b><span class="tool-status" id="pmStats"></span>
+                    <span class="pm-spacer"></span>
+                    <button class="mini" id="pmDelete">Delete</button>
+                    <button class="mini" id="pmExport">Save as zip</button>
+                    <button class="mini primary" id="pmInstall">Install to Flipper</button>
+                  </div>
+                  <div class="nfc-cap pm-mem"><span>Memory</span><div class="nfc-cap-bar"><i id="pmMemFill"></i></div><span id="pmMemText"></span></div>
+                  <div class="vw-note" id="pmMemNote"></div>
+                  <div class="vw-sec">Animations</div>
+                  <div class="vw-btns" id="pmAnims"></div>
+                  <div class="tool-row"><button class="mini" id="pmAddAnim">Add an animation</button></div>
+                  <div class="vw-sec">Passport art and icons</div>
+                  <div class="tool-row" id="pmQuick"></div>
+                  <div class="tool-row">
+                    <input id="pmSlot" type="text" list="pmSlotList" placeholder="Or search every icon, like MainMenu/NFC_14" spellcheck="false">
+                    <datalist id="pmSlotList"></datalist>
+                    <button class="mini" id="pmPickIcon"><i data-icon="folder"></i>Pick a picture</button>
+                    <span class="tool-status" id="pmSlotInfo"></span>
+                  </div>
+                  <div class="anim-wrap" id="pmIconWrap" hidden>
+                    <div class="anim-lcd pm-lcd"><canvas id="pmIconCanvas" width="128" height="64"></canvas></div>
+                    <div class="anim-opts">
+                      <label>Fit <select id="pmIconFit"><option value="contain">Whole picture</option><option value="cover">Fill the icon</option></select></label>
+                      <label>Style <select id="pmIconDither"><option value="">Automatic</option><option value="floyd">Smooth</option><option value="bayer">Pattern</option><option value="threshold">None</option></select></label>
+                      <label>Brightness <input type="range" id="pmIconThr" min="40" max="220" value="128"></label>
+                      <label class="chk"><input type="checkbox" id="pmIconInv"> Invert</label>
+                      <button class="mini primary" id="pmIconAdd">Add to pack</button>
+                    </div>
+                  </div>
+                  <div class="pm-icons" id="pmIcons"></div>
+                  <div class="vw-sec">Fonts</div>
+                  <div class="tool-row">
+                    <label>Replace <select id="pmFontSlot"></select></label>
+                    <button class="mini" id="pmPickFont"><i data-icon="folder"></i>Pick a font</button>
+                    <span class="tool-status">A u8g2 font, as .u8f or .c</span>
+                  </div>
+                  <div class="vw-btns" id="pmFonts"></div>
+                </div>
+                <div class="vw-note" id="pmNote"></div>
+                <div class="tool-row"><button class="mini" id="pmCheck">See the packs on my Flipper</button></div>
+                <div class="vw-btns" id="pmOnFlipper"></div>
+              </div>
             </details>
             <details class="tool" data-tool="sync">
               <summary><b>Folder sync</b><span>Keep a PC folder and an SD card folder in step</span></summary>

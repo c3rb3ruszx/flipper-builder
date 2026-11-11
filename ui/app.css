@@ -884,3 +884,37 @@ body.mirroring .scr-btn i { color: var(--orange); }
 .nfc-cap-bar { flex: 1; height: 8px; background: var(--panel-2); border-radius: 4px; overflow: hidden; }
 .nfc-cap-bar i { display: block; height: 100%; width: 0; background: var(--orange); transition: width .3s var(--ease), background .2s; }
 .nfc-cap-bar i.full { background: var(--err); }
+
+/* pack maker */
+.tool input#pmNewName { width: 220px; }
+.tool input#pmSlot { flex: 1; min-width: 240px; }
+.pm-tips { background: var(--panel-2); border: 1px solid var(--line); border-radius: 10px; padding: 8px 12px; }
+.tool .pm-tips > summary { padding: 0; gap: 8px; align-items: center; font-size: 13px; color: var(--orange-2); }
+.pm-tips > summary::before { content: "\25B8"; transition: transform .15s; }
+.pm-tips[open] > summary::before { transform: rotate(90deg); }
+.pm-tips-body { font-size: 13px; line-height: 1.5; color: var(--muted); padding-top: 6px; }
+.pm-tips-body p { margin: 8px 0 4px; }
+.pm-tips-body ol, .pm-tips-body ul { margin: 2px 0 6px; padding-left: 20px; }
+.pm-tips-body b { color: var(--text); font-weight: 600; }
+.pm-tips-body code { font: 12px var(--mono); color: var(--orange-2); }
+.pm-list { display: flex; flex-wrap: wrap; gap: 8px; }
+.pm-card { display: flex; flex-direction: column; gap: 2px; text-align: left; min-width: 170px; padding: 8px 12px; background: var(--panel-2); border: 1px solid var(--line); border-radius: 10px; color: var(--text); cursor: pointer; }
+.pm-card:hover { border-color: var(--orange-deep); }
+.pm-card.on { border-color: var(--orange); background: #2b1a0a; }
+.pm-card b { font: 600 13px var(--px); }
+.pm-card small { font-size: 11.5px; color: var(--muted); }
+.pm-editor { display: flex; flex-direction: column; gap: 10px; padding: 12px; border: 1px solid var(--line); border-radius: 12px; }
+.pm-editor[hidden] { display: none; }
+.pm-head b { font: 700 15px var(--px-big); text-transform: uppercase; color: var(--orange); }
+.pm-spacer { flex: 1; }
+.pm-mem .nfc-cap-bar i.warn { background: var(--orange-2); }
+.pm-mem .nfc-cap-bar i.ok { background: var(--ok, #58c27d); }
+.pm-thumb { display: block; flex: none; image-rendering: pixelated; border-radius: 3px; background: var(--lcd); }
+.pm-row select { font-size: 12px; }
+.pm-icons { display: grid; grid-template-columns: repeat(auto-fill, minmax(150px, 1fr)); gap: 6px; }
+.pm-icon { display: flex; align-items: center; gap: 8px; min-width: 0; padding: 6px 8px; background: var(--panel-2); border: 1px solid var(--line); border-radius: 8px; }
+.pm-icon span { flex: 1; min-width: 0; font: 11.5px var(--mono); color: var(--muted); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.pm-lcd canvas { width: auto; height: auto; }
+#pmIconWrap label.chk { justify-content: flex-start; }
+#pmIconAdd { justify-self: start; }
+.tag-use { font: 600 10.5px var(--px); text-transform: uppercase; color: var(--orange); border: 1px solid var(--orange-deep); border-radius: 4px; padding: 1px 5px; }

@@ -109,6 +109,11 @@ repo, solders while it compiles, DJs when it's done and cries when the build bre
   to the Flipper, save and start emulating in one click, or keep it on your PC.
 - **Asset packs** (Momentum): browse and install the animation and icon packs from Momentum's pack
   library, checksum-verified.
+- **Pack maker** (Momentum): build your own asset pack from GIFs and pictures: desktop animations,
+  passport art, any of Flipper's icons and fonts, each previewed in black and white. Or import one
+  from a zip or folder (ready-made packs, PNG source packs and dolphin folders all work): every file
+  is checked and anything broken is left out. A memory bar shows how heavy the pack is, built-in tips
+  explain the rest, and it installs in one click or saves as a zip to share.
 - **Folder sync**: pair a PC folder (say, your BadUSB scripts in a Git repo) with an SD card folder and
   keep them in step one way or both ways. Files are compared by size and MD5, you see every change
   before it happens, conflicts are yours to settle, and deleting extras is opt-in (PC files go to a
@@ -178,7 +183,7 @@ Needs Windows and Python 3.10+. Double-click `Flipper Workbench.bat`, or:
 
 ```
 python -m venv .venv
-.venv\Scripts\pip install ufbt pywebview pyserial pillow
+.venv\Scripts\pip install ufbt pywebview pyserial pillow heatshrink2
 .venv\Scripts\python flipper_workbench.py                                                    # GUI
 .venv\Scripts\python flipper_workbench.py <github-url-or-folder> --fw momentum-dev [--send]  # CLI
 ```
@@ -209,7 +214,7 @@ To build one on a Mac:
 
 ```
 python3 -m venv .venv
-.venv/bin/pip install ufbt pywebview pyserial pyinstaller pillow
+.venv/bin/pip install ufbt pywebview pyserial pyinstaller pillow heatshrink2
 bash tools/build_mac.sh            # -> dist/Flipper Workbench.app
 ```
 

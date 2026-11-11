@@ -229,6 +229,12 @@ const LCD = {
    API bridge (pywebview), with a mock for previewing in a plain browser
    ===================================================================== */
 let api = null;
+/* browser preview only */
+function mockBits(w, h) { const row = (w + 7) >> 3, a = new Uint8Array(row * h); for (let y = 0; y < h; y++) for (let x = 0; x < w; x++) if (Math.hypot(x - w / 2, y - h / 2) < Math.min(w, h) * .42 && (x + y) % 3) a[y * row + (x >> 3)] |= 1 << (x & 7); return btoa(String.fromCharCode(...a)); }
+const mockThumb = (w, h) => ({ w, h, bits: mockBits(w, h) });
+const MOCKPACKS = [{ name: "Dolphin Noir", size: 18400, memory: { total: 46200, level: "warn" }, fontList: [{ name: "Primary", mem: 2100 }],
+  animations: [{ name: "Noir_Walk", frames: 18, fps: 6, mem: 11200, weight: 3, thumb: mockThumb(128, 64) }, { name: "Rain_Loop", frames: 40, fps: 8, mem: 33000, weight: 8, thumb: mockThumb(128, 64) }],
+  iconList: [{ path: "Passport/passport_happy_46x49", w: 46, h: 49, frames: 1, mem: 240, thumb: mockThumb(46, 49) }, { path: "MainMenu/NFC_14", w: 14, h: 14, frames: 12, mem: 300, thumb: mockThumb(14, 14) }] }];
 function mockApi() {
   const fws = [["official", "Official firmware (release)", "OFW", "1.5.1", "88.2"], ["official-dev", "Official firmware (dev)", "OFW DEV", null, null],
     ["momentum", "Momentum", "MOMENTUM", "mntm-012", "87.1"], ["momentum-dev", "Momentum (dev)", "MNTM DEV", "d3f89dfe", "87.1"],
@@ -341,6 +347,17 @@ function mockApi() {
       return { nfc: "Filetype: Flipper NFC device", tag, uid: "04 A1 B2 C3 D4 E5 86", bytes, capacity: cap,
         does: items.map((it) => ({ url: `Opens ${it.url}`, wifi: `Offers to join the Wi-Fi network "${it.ssid}"`, text: "Shows the text" }[it.kind] || `Does a ${it.kind} thing`)) }; },
     nfc_save: async () => ({ ok: true, path: "/ext/nfc/Tag.nfc" }), nfc_export: async () => ({ ok: true }),
+    pm_slots: async () => ({ slots: [["Passport/passport_128x64", 128, 64, false], ["Passport/passport_happy_46x49", 46, 49, false], ["Passport/passport_okay_46x49", 46, 49, false], ["Passport/passport_bad_46x49", 46, 49, false], ["MainMenu/NFC_14", 14, 14, true]].map(([path, w, h, animated]) => ({ path, w, h, animated })), fonts: ["Primary", "Secondary", "Keyboard", "BigNumbers", "BatteryPercent"] }),
+    pm_list: async () => ({ packs: MOCKPACKS.map((p) => ({ name: p.name, anims: p.animations.length, icons: p.iconList.length, fonts: 0, size: 18400, memory: p.memory })) }),
+    pm_detail: async (n) => MOCKPACKS.find((p) => p.name === n), pm_check: async () => ({ ok: true, exists: false }),
+    pm_create: async (n) => { if (!n.trim()) return { error: "Give the pack a name (letters, numbers, spaces, - _ .)." }; MOCKPACKS.push({ name: n, size: 0, memory: { total: 0, level: "ok" }, animations: [], iconList: [], fontList: [] }); return { ok: true, name: n }; },
+    pm_delete: async (n) => { MOCKPACKS.splice(MOCKPACKS.findIndex((p) => p.name === n), 1); return { ok: true }; },
+    pm_import: async () => ({ ok: true, imported: ["Dolphin Noir"], warnings: ["Dolphin Noir: Skipped icon Passport/a: not a valid .bmx file"] }),
+    pm_weight: async () => ({ ok: true }), pm_remove_anim: async () => ({ ok: true }), pm_remove_icon: async () => ({ ok: true }), pm_remove_font: async () => ({ ok: true }),
+    pm_icon_pick: async () => ({ ok: true, name: "x.png" }), pm_font_add: async () => ({ cancelled: true }), pm_export: async () => ({ ok: true }), pm_add_anim: async () => ({ ok: true }), pm_icon_add: async () => ({ ok: true }),
+    pm_icon_preview: async (p) => { const s = p.includes("128") ? [128, 64] : p.includes("46") ? [46, 49] : [14, 14]; return { w: s[0], h: s[1], fps: 4, frames: [mockBits(s[0], s[1])] }; },
+    pm_flipper: async () => ({ packs: ["Dolphin Noir", "Kuro - Akira"], active: "Kuro - Akira" }), pm_uninstall: async () => ({ ok: true }),
+    pm_install: async () => { later(300, [{ type: "fprog", label: "Copying the pack", done: 4000, total: 9000 }]); later(1200, [{ type: "finished", ok: true, quiet: true, send_only: true, pm_done: { name: "x" } }]); return { ok: true }; },
     anim_list: async () => ({ made: [] }), anim_pick: async () => ({ cancelled: true }),
     packs_list: async () => ({ packs: [{ id: "a", name: "Akira", author: "Kuronons", anims: 1, icons: 3, previews: [] }] }),
     sync_pairs: async () => ({ pairs: [{ local: "D:\\badusb", remote: "/ext/badusb", mode: "both", delete: false }] }),
@@ -1807,7 +1824,7 @@ async function animRebuild() {
     contrast: +$("#anCon").value / 10, invert: $("#anInv").checked, fps: $("#anFps").value || null });
   if (r.error) { $("#anStatus").textContent = r.error; return; }
   TL.anim.frames = r.frames.map((b) => b64bytes(b)); TL.anim.fps = r.fps; TL.anim.i = 0;
-  $("#anStatus").textContent = `${r.count} frame${r.count > 1 ? "s" : ""} at ${r.fps} fps`;
+  $("#anStatus").textContent = `${r.count} frame${r.count > 1 ? "s" : ""} at ${r.fps} fps, about ${Math.max(1, Math.round(r.mem / 1024))} KB of Flipper memory`;
   $("#anWrap").hidden = false; $("#anSaveRow").hidden = false;
   clearInterval(TL.animTimer);
   const draw = () => {
@@ -1848,6 +1865,154 @@ async function packsLoad(force) {
     <b>${esc(p.name)}</b><small>by ${esc(p.author || "?")} · ${p.anims} anim${p.anims === 1 ? "" : "s"}${p.icons ? ` · ${p.icons} icons` : ""}</small>
     <button class="mini primary" data-id="${esc(p.id)}">Install</button></div>`).join("");
   $$(".pack button", grid).forEach((b) => (b.onclick = () => { if (needDevice()) startJob("files", () => api.pack_install(b.dataset.id)); }));
+}
+/* pack maker */
+const PM = { cur: null, slots: null, frames: [], i: 0, timer: 0 };
+const pmKB = (n) => (n < 1024 ? `${n} B` : `${(n / 1024).toFixed(1)} KB`);
+const PM_QUICK = [["Passport background", "Passport/passport_128x64"], ["Happy", "Passport/passport_happy_46x49"], ["Okay", "Passport/passport_okay_46x49"], ["Bad", "Passport/passport_bad_46x49"]];
+function pmPaint(cv, bytes, w, h) {
+  cv.width = w; cv.height = h;
+  const c = cv.getContext("2d"), img = c.createImageData(w, h), row = (w + 7) >> 3;
+  for (let y = 0; y < h; y++) for (let x = 0; x < w; x++) if ((bytes[y * row + (x >> 3)] >> (x & 7)) & 1) img.data[(y * w + x) * 4 + 3] = 255;
+  c.putImageData(img, 0, 0);
+}
+function pmThumb(t, maxW, maxH) {
+  const cv = document.createElement("canvas"); cv.className = "pm-thumb";
+  if (!t) { cv.width = 1; cv.height = 1; return cv; }
+  pmPaint(cv, b64bytes(t.bits), t.w, t.h);
+  const fit = Math.min(maxW / t.w, maxH / t.h), k = fit >= 1 ? Math.floor(fit) : fit;
+  cv.style.width = `${t.w * k}px`; cv.style.height = `${t.h * k}px`;
+  return cv;
+}
+const pmStatus = (m, err) => { const s = $("#pmStatus"); s.textContent = m || ""; s.classList.toggle("err", !!err); };
+const pmCount = (n, w) => `${n} ${w}${n === 1 ? "" : "s"}`;
+async function pmLoad() {
+  if (!PM.slots) {
+    const s = await api.pm_slots(); PM.slots = s.slots;
+    $("#pmSlotList").innerHTML = s.slots.map((x) => `<option value="${esc(x.path)}">${x.w}x${x.h}${x.animated ? " animated" : ""}</option>`).join("");
+    $("#pmFontSlot").innerHTML = s.fonts.map((f) => `<option>${esc(f)}</option>`).join("");
+    const q = $("#pmQuick"); q.innerHTML = "";
+    PM_QUICK.forEach(([label, path]) => { const b = document.createElement("button"); b.className = "fchip"; b.textContent = label; b.onclick = () => { $("#pmSlot").value = path; pmSlotChanged(); }; q.appendChild(b); });
+  }
+  const r = await api.pm_list();
+  if (r.error) { pmStatus(r.error, true); return; }
+  const box = $("#pmList"); box.innerHTML = "";
+  if (!r.packs.length) $("#pmTips").open = true;
+  r.packs.forEach((p) => {
+    const b = document.createElement("button"); b.className = "pm-card" + (p.name === PM.cur ? " on" : "");
+    const bits = [p.anims && pmCount(p.anims, "animation"), p.icons && pmCount(p.icons, "icon"), p.fonts && pmCount(p.fonts, "font")].filter(Boolean).join(" · ") || "Empty";
+    b.innerHTML = `<b>${esc(p.name)}</b><small>${bits}</small>`;
+    b.onclick = () => pmOpen(p.name); box.appendChild(b);
+  });
+  if (PM.cur && !r.packs.some((p) => p.name === PM.cur)) pmOpen(null);
+}
+function pmSetTarget() {
+  const b = $("#anAddPack"); b.hidden = !PM.cur;
+  if (PM.cur) b.textContent = `Add to ${PM.cur}`;
+}
+function pmMemory(m) {
+  const pct = Math.min(100, m.total / (70 * 1024) * 100), f = $("#pmMemFill");
+  f.style.width = `${pct}%`; f.className = m.level === "high" ? "full" : m.level;
+  $("#pmMemText").textContent = pmKB(m.total);
+  $("#pmMemNote").textContent = m.level === "high" ? "This is more than a Flipper can comfortably hold. Remove frames or icons, or it may run out of memory and crash."
+    : m.level === "warn" ? "A heavy pack, like the biggest ones in Momentum's library. Fine on its own, but big apps may run short of memory while it's on."
+    : m.total ? "Light enough to leave plenty of memory for your apps." : "Add something to see how much memory it needs.";
+}
+async function pmOpen(name) {
+  PM.cur = name; pmSetTarget(); pmIconReset();
+  $("#pmEditor").hidden = !name; $("#pmNote").textContent = "";
+  $$(".pm-card").forEach((c) => c.classList.toggle("on", c.querySelector("b").textContent === name));
+  if (!name) return;
+  const d = await api.pm_detail(name);
+  if (d.error) { toast(d.error); return; }
+  $("#pmTitle").textContent = d.name;
+  $("#pmStats").textContent = `${pmKB(d.size)} on the SD card`;
+  pmMemory(d.memory);
+  const an = $("#pmAnims"); an.innerHTML = d.animations.length ? "" : `<div class="vw-note">No animations yet, so your Flipper keeps its normal ones.</div>`;
+  d.animations.forEach((a) => {
+    const row = document.createElement("div"); row.className = "vw-btn pm-row"; row.appendChild(pmThumb(a.thumb, 64, 32));
+    row.insertAdjacentHTML("beforeend", `<b>${esc(a.name)}</b><span>${pmCount(a.frames, "frame")} · ${a.fps} fps · ${pmKB(a.mem)}</span>`);
+    const sel = document.createElement("select"); sel.title = "How often it plays";
+    const opts = [[1, "Rarely"], [3, "Normal"], [8, "Often"], [20, "Mostly this"]];
+    if (!opts.some(([v]) => v === a.weight)) opts.push([a.weight, `Weight ${a.weight}`]);
+    sel.innerHTML = opts.map(([v, l]) => `<option value="${v}"${v === a.weight ? " selected" : ""}>${esc(l)}</option>`).join("");
+    sel.onchange = async () => { const x = await api.pm_weight(name, a.name, +sel.value); if (x.error) toast(x.error); };
+    const rm = document.createElement("button"); rm.className = "mini"; rm.textContent = "Remove";
+    rm.onclick = async () => { const x = await api.pm_remove_anim(name, a.name); if (x.error) toast(x.error); pmRefresh(); };
+    row.append(sel, rm); an.appendChild(row);
+  });
+  const ic = $("#pmIcons"); ic.innerHTML = "";
+  d.iconList.forEach((i) => {
+    const row = document.createElement("div"); row.className = "pm-icon"; row.title = `${i.path}, ${i.w}x${i.h}${i.frames > 1 ? `, ${i.frames} frames` : ""}`;
+    row.appendChild(pmThumb(i.thumb, 46, 32));
+    row.insertAdjacentHTML("beforeend", `<span>${esc(i.path.split("/").pop())}</span>`);
+    const rm = document.createElement("button"); rm.className = "mini"; rm.textContent = "×"; rm.title = "Remove";
+    rm.onclick = async () => { const x = await api.pm_remove_icon(name, i.path); if (x.error) toast(x.error); pmRefresh(); };
+    row.appendChild(rm); ic.appendChild(row);
+  });
+  const fo = $("#pmFonts"); fo.innerHTML = "";
+  d.fontList.forEach((f) => {
+    const row = document.createElement("div"); row.className = "vw-btn"; row.innerHTML = `<b>${esc(f.name)}</b><span>${pmKB(f.mem)}</span>`;
+    const rm = document.createElement("button"); rm.className = "mini"; rm.textContent = "Remove";
+    rm.onclick = async () => { const x = await api.pm_remove_font(name, f.name); if (x.error) toast(x.error); pmRefresh(); };
+    row.appendChild(rm); fo.appendChild(row);
+  });
+}
+async function pmRefresh() { await pmLoad(); if (PM.cur) await pmOpen(PM.cur); }
+function pmIconReset() { clearInterval(PM.timer); PM.frames = []; $("#pmIconWrap").hidden = true; }
+const pmSlot = () => (PM.slots || []).find((s) => s.path === $("#pmSlot").value.trim());
+function pmSlotChanged() {
+  const s = pmSlot();
+  $("#pmSlotInfo").textContent = s ? `${s.w}x${s.h}${s.animated ? ", can be animated" : ""}` : "";
+  if (s && PM.frames.length) pmIconBuild();
+}
+async function pmIconBuild() {
+  const s = pmSlot(); if (!s) return;
+  const r = await api.pm_icon_preview(s.path, { fit: $("#pmIconFit").value, dither: $("#pmIconDither").value, threshold: +$("#pmIconThr").value, invert: $("#pmIconInv").checked });
+  if (r.error) { toast(r.error); return; }
+  clearInterval(PM.timer);
+  PM.frames = r.frames.map(b64bytes); PM.i = 0; $("#pmIconWrap").hidden = false;
+  const cv = $("#pmIconCanvas"), k = Math.max(1, Math.floor(Math.min(256 / r.w, 128 / r.h)));
+  cv.style.width = `${r.w * k}px`; cv.style.height = `${r.h * k}px`;
+  const draw = () => { pmPaint(cv, PM.frames[PM.i++ % PM.frames.length], r.w, r.h); };
+  draw(); if (PM.frames.length > 1) PM.timer = setInterval(draw, 1000 / r.fps);
+}
+async function pmImport(kind) {
+  pmStatus("Importing...");
+  const r = await api.pm_import(kind);
+  if (r.cancelled) { pmStatus(""); return; }
+  if (r.error) { pmStatus(r.error, true); return; }
+  const w = r.warnings || [];
+  pmStatus(`Imported ${r.imported.join(", ")}${w.length ? `. ${pmCount(w.length, "item")} skipped, see below` : ""}`);
+  PM.cur = r.imported[0]; await pmRefresh();
+  $("#pmNote").innerHTML = w.length ? `<b>Skipped:</b><br>${w.slice(0, 12).map(esc).join("<br>")}${w.length > 12 ? `<br>and ${w.length - 12} more` : ""}` : "";
+}
+async function pmInstall() {
+  if (!PM.cur || !needDevice()) return;
+  const name = PM.cur, c = await api.pm_check(name);
+  if (c.error) { toast(c.error); return; }
+  if (c.exists && !(await confirmDialog(`Replace ${esc(name)}?`, "Your Flipper already has a pack with this name. It will be replaced.", "Replace"))) return;
+  startJob("files", () => api.pm_install(name, !!c.exists));
+}
+async function pmFlipper() {
+  if (!needDevice()) return;
+  const box = $("#pmOnFlipper"); box.innerHTML = `<div class="vw-note">Reading your Flipper...</div>`;
+  const r = await api.pm_flipper();
+  if (r.error) { box.innerHTML = `<div class="vw-note">${esc(r.error)}</div>`; return; }
+  box.innerHTML = r.packs.length ? "" : `<div class="vw-note">No asset packs on your Flipper yet.</div>`;
+  r.packs.forEach((n) => {
+    const row = document.createElement("div"); row.className = "vw-btn"; const inUse = n.toLowerCase() === (r.active || "").toLowerCase();
+    row.innerHTML = `<b>${esc(n)}</b><span>/ext/asset_packs/${esc(n)}</span>${inUse ? `<em class="tag-use">In use</em>` : ""}`;
+    if (!inUse) {
+      const rm = document.createElement("button"); rm.className = "mini"; rm.textContent = "Remove";
+      rm.onclick = async () => {
+        if (!(await confirmDialog(`Remove ${esc(n)}?`, "The pack is deleted from your Flipper's SD card.", "Remove"))) return;
+        const x = await api.pm_uninstall(n); toast(x.error || "Removed"); pmFlipper();
+      };
+      row.appendChild(rm);
+    }
+    box.appendChild(row);
+  });
 }
 /* folder sync */
 async function syRender() {
@@ -2500,6 +2665,7 @@ function finished(e) {
     }, 1500);
   }
   if (e.restored) toast(`Restored ${e.restored.files} files`);
+  if (e.pm_done) { toast("Pack installed"); $("#pmNote").innerHTML = `Installed. On your Flipper, pick it in <b>Momentum Settings &gt; Interface &gt; Graphics &gt; Asset pack</b>. Your Flipper restarts when you back out.`; }
   if (e.saved) toast("Saved. Opening the folder"), api.open_folder(e.saved);
   if (!e.ok && !e.cancelled && S.tab !== "build" && e.error) toast(e.error);
   if (e.quiet && e.ok) {     // file jobs: small celebration, no confetti or stage reset theatre
@@ -2645,6 +2811,36 @@ function bind() {
     animListMade();
   };
   $('.tool[data-tool="packs"]').addEventListener("toggle", (e) => { if (e.target.open) packsLoad(); });
+  $('.tool[data-tool="mypacks"]').addEventListener("toggle", (e) => { if (e.target.open) pmLoad(); });
+  $("#pmCreate").onclick = async () => {
+    const r = await api.pm_create($("#pmNewName").value);
+    if (r.error) { pmStatus(r.error, true); return; }
+    $("#pmNewName").value = ""; pmStatus(""); PM.cur = r.name; pmRefresh();
+  };
+  $("#pmImpZip").onclick = () => pmImport("zip");
+  $("#pmImpDir").onclick = () => pmImport("folder");
+  $("#pmInstall").onclick = pmInstall;
+  $("#pmCheck").onclick = pmFlipper;
+  $("#pmExport").onclick = async () => { const r = await api.pm_export(PM.cur); if (r.error) toast(r.error); else if (r.ok) toast("Saved on this PC"); };
+  $("#pmDelete").onclick = async () => {
+    if (!(await confirmDialog(`Delete ${esc(PM.cur)}?`, "It is removed from this PC. A copy already on your Flipper stays there.", "Delete"))) return;
+    const r = await api.pm_delete(PM.cur); if (r.error) { toast(r.error); return; } PM.cur = null; pmOpen(null); pmLoad();
+  };
+  $("#pmAddAnim").onclick = () => { const t = $('.tool[data-tool="anim"]'); t.open = true; t.scrollIntoView({ behavior: "smooth", block: "start" }); $("#anPick").click(); };
+  $("#anAddPack").onclick = async () => {
+    const r = await api.pm_add_anim(PM.cur, $("#anName").value, +$("#anWeight").value);
+    if (r.error) { toast(r.error); return; }
+    toast(`Added to ${PM.cur}`); $('.tool[data-tool="anim"]').open = false;
+    await pmRefresh(); $('.tool[data-tool="mypacks"]').scrollIntoView({ behavior: "smooth", block: "start" });
+  };
+  $("#pmSlot").oninput = pmSlotChanged;
+  $("#pmPickIcon").onclick = async () => {
+    if (!pmSlot()) { toast("Choose which icon to replace first."); return; }
+    const r = await api.pm_icon_pick(); if (r.error) { toast(r.error); return; } if (r.ok) pmIconBuild();
+  };
+  ["#pmIconFit", "#pmIconDither", "#pmIconThr", "#pmIconInv"].forEach((s) => ($(s).onchange = pmIconBuild));
+  $("#pmIconAdd").onclick = async () => { const r = await api.pm_icon_add(PM.cur); if (r.error) { toast(r.error); return; } pmIconReset(); pmRefresh(); };
+  $("#pmPickFont").onclick = async () => { const r = await api.pm_font_add(PM.cur, $("#pmFontSlot").value); if (r.error) { toast(r.error); return; } if (!r.cancelled) pmRefresh(); };
   $("#syAdd").onclick = syAdd;
   $("#coInstall").onclick = async () => { if (!needDevice()) return; startJob("install", () => api.companion_install()); };
   $$("#discSeg button").forEach((b) => (b.onclick = () => setDisc(b.dataset.disc)));

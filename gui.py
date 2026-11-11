@@ -979,7 +979,7 @@ class Api:
         except Exception as e:  # noqa: BLE001
             return {"error": f"Couldn't read that image: {e}"}
         self._anim_res = res
-        return {"fps": res["fps"], "count": len(res["frames"]),
+        return {"fps": res["fps"], "count": len(res["frames"]), "mem": sum(len(anim.bm_packed(f)) for f in res["frames"]),
                 "frames": [base64.b64encode(anim.bm_bytes(f)[1:]).decode() for f in res["frames"]]}
 
     def anim_install(self, name, weight=3):
@@ -1074,6 +1074,220 @@ class Api:
             job.log(f"OK Installed to /ext/asset_packs/{', '.join(f.name for f in folders)}")
             return {"send_only": True, "quiet": True, "pack_done": {"name": pack["name"], "folders": [f.name for f in folders]}}
         return self._run_job("files", work)
+
+    # ------------------------------------------------ tools: make and import asset packs
+    PM_REMOTE = "/ext/asset_packs"
+
+    @property
+    def _pm_root(self):
+        return fb.ROOT / "my_packs"
+
+    def _pm_call(self, fn):
+        """Run a library change; bad input and unreadable files come back as {"error"}."""
+        import packmaker
+        try:
+            return fn() or {"ok": True}
+        except packmaker.PackError as e:
+            return {"error": str(e)}
+        except OSError as e:
+            return {"error": f"Couldn't do that: {e}"}
+
+    def pm_slots(self):
+        import iconslots
+        import packmaker
+        return {"slots": [{"path": p, "w": w, "h": h, "animated": a} for p, w, h, a in iconslots.SLOTS],
+                "fonts": list(packmaker.FONT_SLOTS)}
+
+    def pm_list(self):
+        import packmaker
+        return self._pm_call(lambda: {"packs": packmaker.list_packs(self._pm_root)})
+
+    def pm_detail(self, name):
+        import packmaker
+        return self._pm_call(lambda: packmaker.detail(self._pm_root, name))
+
+    def pm_create(self, name):
+        import packmaker
+        return self._pm_call(lambda: {"ok": True, "name": packmaker.create(self._pm_root, name)})
+
+    def pm_delete(self, name):
+        import packmaker
+        return self._pm_call(lambda: packmaker.delete(self._pm_root, name))
+
+    def pm_import(self, kind):
+        """Pick a zip or a folder and bring the packs inside it into the library."""
+        import packmaker
+        src = self._pick(folder=True) if kind == "folder" else self._pick(("Zip files (*.zip)", "All files (*.*)"))
+        if not src:
+            return {"cancelled": True}
+        return self._pm_call(lambda: {"ok": True, **packmaker.import_path(src, self._pm_root)})
+
+    def pm_add_anim(self, pack, name, weight=3):
+        """Add the picture currently in the Animation maker to a pack."""
+        import packmaker
+        res = getattr(self, "_anim_res", None)
+        if not res:
+            return {"error": "Make an animation first."}
+        return self._pm_call(lambda: {"ok": True, "name": packmaker.add_anim(self._pm_root, pack, name, res, int(weight))})
+
+    def pm_remove_anim(self, pack, name):
+        import packmaker
+        return self._pm_call(lambda: packmaker.remove_anim(self._pm_root, pack, name))
+
+    def pm_weight(self, pack, name, weight):
+        import packmaker
+        return self._pm_call(lambda: packmaker.set_weight(self._pm_root, pack, name, weight))
+
+    def pm_icon_pick(self):
+        p = self._pick(("Images and GIFs (*.png;*.gif;*.webp;*.jpg;*.jpeg;*.bmp)", "All files (*.*)"))
+        if not p:
+            return {"cancelled": True}
+        if Path(p).stat().st_size > 30 * 1024 * 1024:
+            return {"error": "That file is too big (30 MB max)."}
+        self._pm_icon_src = Path(p)
+        return {"ok": True, "name": Path(p).name}
+
+    def pm_icon_preview(self, path, opts):
+        """Convert the picked picture for this icon; returns preview frames (XBM rows, base64)."""
+        import base64
+        import anim
+        import packmaker
+        src = getattr(self, "_pm_icon_src", None)
+        if not src:
+            return {"error": "Pick a picture first."}
+        try:
+            _, w, h, animated = packmaker.slot(path)
+            frames, fps = packmaker.icon_frames(src.read_bytes(), path, opts)
+        except packmaker.PackError as e:
+            return {"error": str(e)}
+        except Exception as e:  # noqa: BLE001
+            return {"error": f"Couldn't read that image: {e}"}
+        self._pm_icon_res = (path, frames, fps)
+        return {"w": w, "h": h, "animated": animated, "fps": fps,
+                "frames": [base64.b64encode(anim.bm_bytes(f)[1:]).decode() for f in frames]}
+
+    def pm_icon_add(self, pack):
+        import packmaker
+        res = getattr(self, "_pm_icon_res", None)
+        if not res:
+            return {"error": "Pick a picture first."}
+        return self._pm_call(lambda: packmaker.add_icon(self._pm_root, pack, *res))
+
+    def pm_remove_icon(self, pack, path):
+        import packmaker
+        return self._pm_call(lambda: packmaker.remove_icon(self._pm_root, pack, path))
+
+    def pm_font_add(self, pack, font_slot):
+        import packmaker
+        src = self._pick(("Flipper fonts (*.u8f;*.c)", "All files (*.*)"))
+        if not src:
+            return {"cancelled": True}
+        return self._pm_call(lambda: packmaker.add_font(self._pm_root, pack, font_slot, src))
+
+    def pm_remove_font(self, pack, font_slot):
+        import packmaker
+        return self._pm_call(lambda: packmaker.remove_font(self._pm_root, pack, font_slot))
+
+    def pm_export(self, name):
+        """Save the pack as a zip, ready to share or to unpack into asset_packs by hand."""
+        import webview
+        import packmaker
+        try:
+            res = self._window.create_file_dialog(webview.FileDialog.SAVE, save_filename=f"{name}.zip",
+                                                  file_types=("Zip files (*.zip)", "All files (*.*)"))
+        except AttributeError:
+            res = self._window.create_file_dialog(webview.SAVE_DIALOG, save_filename=f"{name}.zip")
+        if not res:
+            return {"cancelled": True}
+        out = Path(res[0] if isinstance(res, (list, tuple)) else res)
+        if out.suffix.lower() != ".zip":
+            out = out.with_suffix(".zip")
+        return self._pm_call(lambda: {"ok": True, "path": str(packmaker.export_zip(self._pm_root, name, out))})
+
+    def _pm_state(self, port):
+        """Packs on the SD card and the one Momentum is using ('' = Default)."""
+        import device
+        sdk = fb.sdk_dirs()
+        names = []
+        if device.storage_call(port, sdk, lambda mod, st: st.exist_dir(self.PM_REMOTE)):
+            names = [e["name"] for e in device.list_dir(port, sdk, self.PM_REMOTE) if e["dir"]]
+        active = ""
+        for path in ("/int/.momentum_settings.txt", "/ext/.int/.momentum_settings.txt"):
+            if device.file_exists(port, sdk, path):
+                text = device.read_file(port, sdk, path).decode("utf-8", "replace")
+                m = re.search(r"^asset_pack:[ \t]*(.*?)\s*$", text, re.M)
+                active = m.group(1) if m else ""
+                break
+        return {"packs": names, "active": active}
+
+    def _pm_momentum(self):
+        if not (self._device.get("fw") or "").startswith("momentum"):
+            raise fb.BuildError("Asset packs need Momentum firmware. You can still save this pack as a zip.")
+
+    def pm_flipper(self):
+        import device
+        try:
+            self._pm_momentum()
+            return self._pm_state(self._port())
+        except (fb.BuildError, device.DeviceError) as e:
+            return {"error": str(e)}
+
+    def pm_check(self, name):
+        """Before installing: does the Flipper have this pack already, and is it in use?"""
+        import device
+        import packmaker
+        try:
+            self._pm_momentum()
+            d = packmaker.pack_dir(self._pm_root, name)
+            if not any(p.is_file() for p in d.rglob("*")):
+                return {"error": "This pack is empty. Add an animation or an icon first."}
+            st = self._pm_state(self._port())
+        except (fb.BuildError, device.DeviceError, packmaker.PackError) as e:
+            return {"error": str(e)}
+        same = next((n for n in st["packs"] if n.lower() == name.lower()), None)
+        if same and st["active"].lower() == name.lower():
+            return {"error": f"{name} is the pack your Flipper is using right now. Switch to Default in "
+                             "Momentum Settings > Interface > Graphics > Asset pack, then install again."}
+        return {"ok": True, "exists": bool(same)}
+
+    def pm_install(self, name, replace=False):
+        chk = self.pm_check(name)
+        if chk.get("error"):
+            return chk
+        if chk.get("exists") and not replace:
+            return {"error": "That pack is already on your Flipper."}
+        import packmaker
+        d = packmaker.pack_dir(self._pm_root, name)
+
+        def work(job):
+            import device
+            job.stage("send", "copying")
+            try:
+                port = self._port()
+                if chk.get("exists"):
+                    device.remove_tree(port, fb.sdk_dirs(), f"{self.PM_REMOTE}/{name}")
+                device.upload(port, fb.sdk_dirs(), [str(d)], self.PM_REMOTE, progress=self._fprog("Copying the pack"))
+            except device.DeviceError as e:
+                raise fb.BuildError(str(e))
+            job.log(f"OK Installed to {self.PM_REMOTE}/{name}")
+            return {"send_only": True, "quiet": True, "pm_done": {"name": name}}
+        return self._run_job("files", work)
+
+    def pm_uninstall(self, name):
+        """Delete a pack from the SD card. Never the one the Flipper is using."""
+        import device
+        try:
+            self._pm_momentum()
+            port = self._port()
+            st = self._pm_state(port)
+            if name not in st["packs"]:          # only ever a folder the Flipper itself just listed
+                return {"error": "That pack isn't on your Flipper any more."}
+            if st["active"].lower() == name.lower():
+                return {"error": f"{name} is in use. Switch to Default in Momentum Settings first."}
+            device.remove_tree(port, fb.sdk_dirs(), f"{self.PM_REMOTE}/{name}")
+            return {"ok": True}
+        except (fb.BuildError, device.DeviceError) as e:
+            return {"error": str(e)}
 
     # ------------------------------------------------ tools: folder sync
     def sync_pairs(self):
